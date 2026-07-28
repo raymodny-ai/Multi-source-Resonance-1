@@ -1,0 +1,285 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Multi-source Resonance Monitor - System Overview Dashboard",
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "System Overview",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "collapsed": false
+    },
+    {
+      "title": "Service Status",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 1},
+      "targets": [
+        {"expr": "up{job=\"resonance\"}", "legendFormat": "Up"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"options": {"0": {"text": "DOWN"}}, "type": "value"},
+            {"options": {"1": {"text": "UP"}}, "type": "value"}
+          ],
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "CPU Usage %",
+      "type": "gauge",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 1},
+      "targets": [
+        {"expr": "100 - (avg(rate(process_cpu_seconds_total{job=\"resonance\"}[5m])) * 100)", "legendFormat": "CPU"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 100,
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 60},
+              {"color": "red", "value": 80}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Memory Usage (MB)",
+      "type": "gauge",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 1},
+      "targets": [
+        {"expr": "process_resident_memory_bytes{job=\"resonance\"} / 1048576", "legendFormat": "RSS"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1024},
+              {"color": "red", "value": 1700}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "DB Size (MB)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 1},
+      "targets": [
+        {"expr": "resonance_db_size_bytes{job=\"resonance\"} / 1048576", "legendFormat": "DB Size"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 500},
+              {"color": "red", "value": 1024}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Active Connections",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 5},
+      "targets": [
+        {"expr": "websocket_active_connections{job=\"resonance\"}", "legendFormat": "WebSocket"}
+      ]
+    },
+    {
+      "title": "Resonance Score (Latest)",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 5},
+      "targets": [
+        {"expr": "signal_total_score{job=\"resonance\"}", "legendFormat": "Score"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0, "max": 100,
+          "thresholds": {
+            "steps": [
+              {"color": "blue", "value": null},
+              {"color": "green", "value": 25},
+              {"color": "yellow", "value": 50},
+              {"color": "red", "value": 75}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "EventBus Queue Depth",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 5},
+      "targets": [
+        {"expr": "eventbus_queue_depth{job=\"resonance\"}", "legendFormat": "Queue"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "red", "value": 100}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Data Collection Latency",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 9},
+      "collapsed": false
+    },
+    {
+      "title": "Fetch Duration by Source (P95)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 10},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum(rate(fetch_duration_seconds_bucket{job=\"resonance\"}[5m])) by (le, source))", "legendFormat": "{{source}} P95"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "s"}
+      }
+    },
+    {
+      "title": "Fetch Success Rate by Source",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 10},
+      "targets": [
+        {"expr": "sum(rate(fetch_success_total{job=\"resonance\"}[5m])) by (source) / sum(rate(fetch_attempts_total{job=\"resonance\"}[5m])) by (source) * 100", "legendFormat": "{{source}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "percent", "min": 0, "max": 100}
+      }
+    },
+    {
+      "title": "Signal Frequency",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 18},
+      "collapsed": false
+    },
+    {
+      "title": "Signal Count by Level (24h)",
+      "type": "barchart",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 19},
+      "targets": [
+        {"expr": "sum(increase(signal_generated_total{job=\"resonance\"}[24h])) by (level)", "legendFormat": "{{level}}"}
+      ]
+    },
+    {
+      "title": "Signal Score Timeline",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 19},
+      "targets": [
+        {"expr": "signal_total_score{job=\"resonance\"}", "legendFormat": "Total Score"},
+        {"expr": "signal_gex_score{job=\"resonance\"}", "legendFormat": "GEX"},
+        {"expr": "signal_vix_score{job=\"resonance\"}", "legendFormat": "VIX"},
+        {"expr": "signal_crypto_score{job=\"resonance\"}", "legendFormat": "Crypto"},
+        {"expr": "signal_darkpool_score{job=\"resonance\"}", "legendFormat": "Darkpool"}
+      ]
+    },
+    {
+      "title": "Database Performance",
+      "type": "row",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 27},
+      "collapsed": false
+    },
+    {
+      "title": "Query Duration (P50/P95/P99)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum(rate(db_query_duration_seconds_bucket{job=\"resonance\"}[5m])) by (le))", "legendFormat": "P50"},
+        {"expr": "histogram_quantile(0.95, sum(rate(db_query_duration_seconds_bucket{job=\"resonance\"}[5m])) by (le))", "legendFormat": "P95"},
+        {"expr": "histogram_quantile(0.99, sum(rate(db_query_duration_seconds_bucket{job=\"resonance\"}[5m])) by (le))", "legendFormat": "P99"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "s"}
+      }
+    },
+    {
+      "title": "DB Size Growth (7d)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+      "targets": [
+        {"expr": "resonance_db_size_bytes{job=\"resonance\"} / 1048576", "legendFormat": "DB Size (MB)"},
+        {"expr": "resonance_db_wal_size_bytes{job=\"resonance\"} / 1048576", "legendFormat": "WAL Size (MB)"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "decmbytes"}
+      }
+    },
+    {
+      "title": "Pipeline Stage Duration",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 36},
+      "targets": [
+        {"expr": "pipeline_stage_duration_seconds{job=\"resonance\", stage=\"fetch\"}", "legendFormat": "Fetch"},
+        {"expr": "pipeline_stage_duration_seconds{job=\"resonance\", stage=\"validate\"}", "legendFormat": "Validate"},
+        {"expr": "pipeline_stage_duration_seconds{job=\"resonance\", stage=\"compute\"}", "legendFormat": "Compute"},
+        {"expr": "pipeline_stage_duration_seconds{job=\"resonance\", stage=\"gateway\"}", "legendFormat": "Gateway"},
+        {"expr": "pipeline_stage_duration_seconds{job=\"resonance\", stage=\"scoring\"}", "legendFormat": "Scoring"},
+        {"expr": "pipeline_stage_duration_seconds{job=\"resonance\", stage=\"llm\"}", "legendFormat": "LLM"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "s"}
+      }
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["resonance", "monitoring", "trading"],
+  "templating": {"list": []},
+  "time": {"from": "now-24h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Multi-source Resonance Monitor",
+  "uid": "resonance-overview",
+  "version": 1
+}

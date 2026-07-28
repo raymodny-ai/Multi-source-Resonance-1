@@ -1,0 +1,38 @@
+# Web Framework
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.34.0,<1.0.0
+
+# Database
+aiosqlite>=0.20.0,<1.0.0
+
+# HTTP Client
+httpx>=0.28.0,<1.0.0
+
+# Data Validation & Settings
+pydantic>=2.10.0,<3.0.0
+pydantic-settings>=2.7.0,<3.0.0
+
+# Authentication
+python-jose[cryptography]>=3.3.0,<4.0.0
+passlib[bcrypt]>=1.7.4,<2.0.0
+python-multipart>=0.0.18
+
+# WebSocket
+websockets>=14.0,<15.0
+
+# Rate Limiting
+slowapi>=0.1.9,<1.0.0
+
+# Logging
+structlog>=24.4.0,<25.0.0
+
+# Monitoring
+prometheus-client>=0.21.0,<1.0.0
+
+# Task Scheduling
+apscheduler>=3.10.0,<4.0.0
+
+# Scientific Computing
+numpy>=2.1.0,<3.0.0
+scipy>=1.14.0,<2.0.0
+pandas>=2.2.0,<3.0.0

@@ -1,0 +1,137 @@
+# Prometheus Alerting Rules for Multi-source Resonance Monitor
+# Load this file in prometheus.yml under rule_files:
+#   rule_files:
+#     - "prometheus_rules.yml"
+
+groups:
+  - name: resonance_system_alerts
+    interval: 30s
+    rules:
+      # ── CPU Usage > 80% ──────────────────────────────────────────────────
+      - alert: HighCpuUsage
+        expr: >
+          100 - (avg by(instance) (rate(process_cpu_seconds_total{job="resonance"}[5m])) * 100) > 80
+          or
+          (process_resident_memory_bytes{job="resonance"} / process_virtual_memory_bytes{job="resonance"}) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          category: system
+        annotations:
+          summary: "CPU 使用率超过 80%"
+          description: "实例 {{ $labels.instance }} CPU 使用率持续 5 分钟超过 80%，当前值: {{ $value | printf \"%.1f\" }}%"
+          runbook_url: "https://github.com/resonance/docs/troubleshooting.md#high-cpu"
+
+      # ── Memory Usage > 85% ───────────────────────────────────────────────
+      - alert: HighMemoryUsage
+        expr: >
+          process_resident_memory_bytes{job="resonance"} / 1073741824 > 1.7
+        for: 5m
+        labels:
+          severity: warning
+          category: system
+        annotations:
+          summary: "内存使用率超过 85%"
+          description: "实例 {{ $labels.instance }} 内存占用超过 85% ({{ $value | printf \"%.2f\" }} GB)，持续 5 分钟"
+          runbook_url: "https://github.com/resonance/docs/troubleshooting.md#high-memory"
+
+      # ── Fetch Failure Rate > 20% ─────────────────────────────────────────
+      - alert: HighFetchFailureRate
+        expr: >
+          sum(rate(fetch_errors_total{job="resonance"}[10m])) / sum(rate(fetch_attempts_total{job="resonance"}[10m])) > 0.20
+        for: 10m
+        labels:
+          severity: critical
+          category: data_collection
+        annotations:
+          summary: "数据采集失败率超过 20%"
+          description: "过去 10 分钟数据采集失败率为 {{ $value | printf \"%.1f\" }}%，超过 20% 阈值。请检查数据源连通性。"
+          runbook_url: "https://github.com/resonance/docs/troubleshooting.md#fetch-failures"
+
+      # ── Signal Latency > 5 minutes ───────────────────────────────────────
+      - alert: SignalLatencyHigh
+        expr: >
+          time() - signal_last_generated_timestamp{job="resonance"} > 300
+        for: 5m
+        labels:
+          severity: warning
+          category: pipeline
+        annotations:
+          summary: "信号生成延迟超过 5 分钟"
+          description: "最近一次信号生成时间为 {{ $value | printf \"%.0f\" }} 秒前，超过 5 分钟阈值。Pipeline 可能存在阻塞。"
+          runbook_url: "https://github.com/resonance/docs/troubleshooting.md#pipeline-stuck"
+
+      # ── Database Size > 1GB ──────────────────────────────────────────────
+      - alert: DatabaseSizeLarge
+        expr: >
+          resonance_db_size_bytes{job="resonance"} > 1073741824
+        for: 30m
+        labels:
+          severity: warning
+          category: database
+        annotations:
+          summary: "数据库大小超过 1GB"
+          description: "SQLite 数据库大小已达 {{ $value | printf \"%.2f\" }} bytes (超过 1GB)。建议执行 VACUUM 或归档旧数据。"
+          runbook_url: "https://github.com/resonance/docs/troubleshooting.md#db-size"
+
+  - name: resonance_availability_alerts
+    interval: 60s
+    rules:
+      # ── Service Down ─────────────────────────────────────────────────────
+      - alert: ServiceDown
+        expr: up{job="resonance"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: "共振监控系统服务不可用"
+          description: "实例 {{ $labels.instance }} 已停止响应超过 1 分钟"
+
+      # ── EventBus Queue Depth High ────────────────────────────────────────
+      - alert: EventBusQueueDepthHigh
+        expr: eventbus_queue_depth{job="resonance"} > 100
+        for: 5m
+        labels:
+          severity: warning
+          category: pipeline
+        annotations:
+          summary: "EventBus 队列深度过高"
+          description: "EventBus 队列深度 {{ $value }} 超过 100，可能存在消息积压"
+
+      # ── WebSocket Connections Drop ───────────────────────────────────────
+      - alert: WebSocketConnectionsDrop
+        expr: websocket_active_connections{job="resonance"} == 0
+        for: 10m
+        labels:
+          severity: info
+          category: availability
+        annotations:
+          summary: "无活跃 WebSocket 连接"
+          description: "过去 10 分钟无活跃 WebSocket 连接，前端可能未连接"
+
+  - name: resonance_data_quality_alerts
+    interval: 120s
+    rules:
+      # ── Data Staleness > 30 minutes ──────────────────────────────────────
+      - alert: DataStaleness
+        expr: >
+          time() - data_last_success_timestamp{job="resonance"} > 1800
+        for: 10m
+        labels:
+          severity: warning
+          category: data_quality
+        annotations:
+          summary: "数据超过 30 分钟未更新"
+          description: "数据源 {{ $labels.source }} 最后成功采集时间为 {{ $value | printf \"%.0f\" }} 秒前"
+
+      # ── GEX Data Quality Score Low ───────────────────────────────────────
+      - alert: GexDataQualityLow
+        expr: gex_quality_score{job="resonance"} < 0.5
+        for: 15m
+        labels:
+          severity: warning
+          category: data_quality
+        annotations:
+          summary: "GEX 数据质量评分过低"
+          description: "GEX 数据质量评分 {{ $value | printf \"%.2f\" }} 低于 0.5 阈值"
