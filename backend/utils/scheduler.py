@@ -16,6 +16,8 @@ from backend.utils.db_maintenance import (
     vacuum_and_analyze,
     verify_write_paths,
 )
+from backend.quant.signal_outcomes import SignalOutcomeTracker
+from backend.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,15 @@ async def job_full_backup():
     logger.info("Scheduled job: full_backup")
     result = backup_database_full()
     logger.info(f"full_backup result: {result}")
+
+
+async def job_check_signal_outcomes():
+    """Daily 06:00 UTC: Evaluate unaudited signal outcomes via SignalOutcomeTracker."""
+    logger.info("Scheduled job: check_signal_outcomes")
+    tracker = SignalOutcomeTracker()
+    async with get_db() as db:
+        results = await tracker.check_outcomes(db)
+    logger.info(f"check_signal_outcomes result: evaluated {len(results)} signals")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -124,9 +135,18 @@ def register_jobs() -> None:
         replace_existing=True,
     )
 
+    # Daily 06:00 UTC: Signal outcome evaluation
+    scheduler.add_job(
+        job_check_signal_outcomes,
+        trigger=CronTrigger(hour=6, minute=0),
+        id="check_signal_outcomes",
+        name="Evaluate signal outcomes (false positive tracking)",
+        replace_existing=True,
+    )
+
     logger.info(
-        "Scheduled 5 maintenance jobs: "
-        "hourly write-path check, daily vacuum/archive/backup, weekly full backup"
+        "Scheduled 6 maintenance jobs: "
+        "hourly write-path check, daily vacuum/archive/backup/outcomes, weekly full backup"
     )
 
 

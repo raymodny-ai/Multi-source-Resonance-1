@@ -17,6 +17,15 @@ from backend.fetchers.sector_fetcher import SectorFetcher
 from backend.fetchers.sentiment_fetcher import SentimentFetcher
 from backend.fetchers.vix_term_fetcher import VIXTermFetcher
 
+# New fetchers (v3.1 modular expansion)
+from backend.fetchers.squeezemetrics_fetcher import SqueezeMetricsFetcher
+from backend.fetchers.finra_fetcher import FinraFetcher
+from backend.fetchers.ccdata_fetcher import CCDataFetcher
+from backend.fetchers.stockgrid_fetcher import StockGridFetcher
+from backend.fetchers.coinglass_fetcher import CoinglassFetcher
+from backend.fetchers.tradier_fetcher import TradierFetcher
+from backend.fetchers.dbmf_fetcher import DBMFFetcher
+
 __all__ = [
     "BaseFetcher",
     "CryptoFetcher",
@@ -28,4 +37,12 @@ __all__ = [
     "SectorFetcher",
     "SentimentFetcher",
     "VIXTermFetcher",
+    # New fetchers
+    "SqueezeMetricsFetcher",
+    "FinraFetcher",
+    "CCDataFetcher",
+    "StockGridFetcher",
+    "CoinglassFetcher",
+    "TradierFetcher",
+    "DBMFFetcher",
 ]

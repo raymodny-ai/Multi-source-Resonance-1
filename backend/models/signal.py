@@ -19,6 +19,9 @@ class SignalAlertBase(BaseModel):
     hawkes_branching_ratio: Optional[float] = Field(None, ge=0, le=1, description="Hawkes self-exciting branching ratio")
     details: Optional[str] = Field(None, description="JSON details")
     acknowledged: bool = Field(False, description="Whether alert has been acknowledged")
+    outcome: Optional[str] = Field(None, description="Signal outcome: 'profit' / 'loss' / NULL")
+    forward_return: Optional[float] = Field(None, description="Actual return after signal trigger (N-day)")
+    outcome_checked_at: Optional[str] = Field(None, description="Timestamp when outcome was evaluated")
 
 
 class SignalAlertCreate(SignalAlertBase):

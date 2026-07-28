@@ -282,6 +282,128 @@ Multi-source-Resonance/
 └── README.md                  # 本文档
 ```
 
+### 2.5 实际代码目录结构 (v3.1)
+
+> **说明**: 上述 2.4 节展示的是原始设计逻辑结构。实际代码已统一重构到 `backend/` 子目录下，以下是**实际代码**与**原设计**的映射关系。
+
+```
+Multi-source-Resonance/
+├── backend/                       # 后端代码根目录
+│   ├── main.py                    # FastAPI 应用入口 (uvicorn 启动)
+│   ├── config.py                  # 配置管理 (Settings 类, 环境变量)
+│   ├── database.py                # SQLite async ORM (11 表 + 5 视图, aiosqlite)
+│   ├── api/                       # REST API 层
+│   │   ├── middleware/
+│   │   │   ├── auth.py            # JWT 鉴权中间件 (写端点保护)
+│   │   │   └── rate_limit.py      # API 限流 (slowapi, 100/min)
+│   │   ├── routes/                # 路由模块 (10 个蓝图)
+│   │   │   ├── auth.py            #   认证 (login/refresh/logout)
+│   │   │   ├── dashboard.py       #   仪表盘聚合
+│   │   │   ├── gex.py             #   GEX 元数据
+│   │   │   ├── vix.py             #   VIX 期限结构
+│   │   │   ├── darkpool.py        #   暗池指标
+│   │   │   ├── crypto.py          #   加密衍生品
+│   │   │   ├── signals.py         #   信号 & 告警
+│   │   │   ├── config.py          #   配置管理
+│   │   │   ├── system.py          #   系统 & 采集触发
+│   │   │   ├── metrics.py         #   Prometheus 指标
+│   │   │   └── analysis.py        #   LLM 分析
+│   │   └── websocket.py           # WebSocket 管理
+│   ├── fetchers/                  # 数据采集层 → 对应原设计 data_fetchers/
+│   │   ├── base.py                #   Fetcher 基类
+│   │   ├── base_alt.py            #   备选基类
+│   │   ├── gexmetrix_fetcher.py   #   GEXMetrix API
+│   │   ├── yfinance_fetcher.py    #   yfinance OHLCV
+│   │   ├── vix_fetcher.py         #   CBOE VIX
+│   │   ├── vix_term_fetcher.py    #   VIX 期限结构
+│   │   ├── darkpool_fetcher.py    #   暗池 DIX
+│   │   ├── crypto_fetcher.py      #   加密衍生品 (Hyperliquid→CCData)
+│   │   ├── axlfi_fetcher.py       #   AXLFI 暗盘净头寸
+│   │   ├── macro_fetcher.py       #   宏观数据
+│   │   ├── sector_fetcher.py      #   板块数据
+│   │   ├── flow_fetcher.py        #   资金流
+│   │   ├── put_call_fetcher.py    #   Put/Call 比率
+│   │   ├── sentiment_fetcher.py   #   情绪指标
+│   │   ├── llm_fetcher.py         #   LLM 推理 (OpenAI→Anthropic→模板)
+│   │   └── cboe_fetcher.py        #   CBOE 数据
+│   ├── quant/                     # 量化逻辑层 → 对应原设计 quant_logic/
+│   │   ├── scoring.py             #   四维共振评分
+│   │   ├── gex_analyzer.py        #   GEX 分析
+│   │   ├── vix_analyzer.py        #   VIX 分析
+│   │   ├── vix_term_analyzer.py   #   VIX 期限结构分析
+│   │   ├── crypto_analyzer.py     #   加密衍生品分析
+│   │   ├── darkpool_analyzer.py   #   暗池分析
+│   │   ├── flow_analyzer.py       #   资金流分析
+│   │   ├── macro_analyzer.py      #   宏观分析
+│   │   ├── sector_analyzer.py     #   板块分析
+│   │   ├── put_call_analyzer.py   #   Put/Call 分析
+│   │   ├── sentiment_analyzer.py  #   情绪分析
+│   │   ├── bayesian_weights.py    #   贝叶斯权重自适应
+│   │   ├── hawkes_model.py        #   Hawkes 自激模型
+│   │   ├── llm_analyzer.py        #   LLM 分析器
+│   │   ├── llm_cache.py           #   LLM 推理缓存 (SHA-256 + SQLite)
+│   │   └── backtest_engine.py     #   回测引擎 (Walk-forward + 敏感性)
+│   ├── models/                    # Pydantic 数据模型 → 对应原设计 gateway/
+│   │   ├── common.py              #   通用模型
+│   │   ├── signal.py              #   信号模型
+│   │   ├── gex.py                 #   GEX 模型
+│   │   ├── vix.py                 #   VIX 模型
+│   │   ├── darkpool.py            #   暗池模型
+│   │   ├── crypto.py              #   加密模型
+│   │   └── system.py              #   系统模型
+│   ├── eventbus/                  # 事件总线 → 对应原设计 data_stream/event_bus
+│   │   ├── event_bus.py           #   asyncio pub/sub
+│   │   └── events.py              #   事件定义
+│   ├── pipeline/                  # 数据流水线 → 对应原设计 data_stream/pipeline
+│   │   ├── pipeline.py            #   主流水线
+│   │   ├── concurrent_executor.py #   并发执行器
+│   │   └── data_writer.py         #   数据写入器
+│   ├── notifications/             # 通知推送 → 对应原设计 notification/
+│   │   └── notifier.py            #   多渠道告警 (Email/Telegram/Discord)
+│   ├── utils/                     # 工具模块
+│   │   ├── scheduler.py           #   APScheduler 任务编排
+│   │   ├── security.py            #   密码哈希/验证
+│   │   ├── db_maintenance.py      #   数据库维护 (VACUUM/归档/备份)
+│   │   └── structured_logging.py  #   structlog 结构化日志
+│   └── tests/                     # 测试套件
+│       ├── unit/                  #   单元测试
+│       ├── integration/           #   集成测试
+│       └── conftest.py            #   pytest 配置
+├── frontend/                      # React + Vite 前端 (与 2.4 一致)
+├── data/                          # 运行时数据
+│   ├── resonance.db               #   SQLite 数据库 (WAL)
+│   ├── resonance.db-shm
+│   └── resonance.db-wal
+├── deploy/                        # 部署配置
+│   ├── grafana_dashboard.json     #   Grafana 仪表盘
+│   └── prometheus_rules.yml       #   Prometheus 告警规则
+├── scripts/
+│   └── db_backup.sh               #   数据库备份脚本 (全量/增量)
+├── docs/                          # 文档
+├── requirements.txt
+├── pyproject.toml
+└── README.md
+```
+
+#### 路径映射对照表
+
+| 原设计路径 | 实际代码路径 | 说明 |
+|------------|-------------|------|
+| `data_fetchers/` | `backend/fetchers/` | 14 个 fetcher 统一在此 |
+| `quant_logic/` | `backend/quant/` | 量化分析 + 评分 + 回测 |
+| `data_stream/event_bus.py` | `backend/eventbus/event_bus.py` | asyncio pub/sub |
+| `data_stream/signal_pipeline.py` | `backend/pipeline/pipeline.py` | 主流水线 |
+| `data_stream/rest_poll_scheduler.py` | `backend/utils/scheduler.py` | 任务编排 |
+| `gateway/` (schemas, validator) | `backend/models/` | Pydantic 数据模型 |
+| `signal_engine/` | `backend/quant/scoring.py` | 评分逻辑合并到 quant |
+| `llm_inference/` | `backend/quant/llm_analyzer.py` + `backend/fetchers/llm_fetcher.py` | LLM 推理拆分到 quant 和 fetchers |
+| `backtest_engine/` | `backend/quant/backtest_engine.py` | 独立回测引擎文件 |
+| `notification/` | `backend/notifications/notifier.py` | 多渠道通知 |
+| `api_server.py` | `backend/main.py` | FastAPI 入口 |
+| `config/settings.py` | `backend/config.py` | 配置管理 |
+| `database/db_manager.py` | `backend/database.py` | 数据库层 |
+| `tests/` | `backend/tests/` | 测试套件 |
+
 ---
 
 ## 3. 数据源矩阵

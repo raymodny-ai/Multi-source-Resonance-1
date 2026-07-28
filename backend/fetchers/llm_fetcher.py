@@ -1,9 +1,12 @@
 """
-LLM inference data fetcher.
+LLM inference data fetcher — compatibility layer.
 
-Calls LLM API (OpenAI / Anthropic) to analyse market data and generate
-human-readable reports. Falls back to template-based analysis when API
-keys are missing or API calls fail.
+This module re-exports the LLM inference functionality from the new
+backend/llm_inference/ package while maintaining the original
+LLMFetcher interface for backward compatibility.
+
+New code should import directly from backend.llm_inference:
+    from backend.llm_inference import get_default_client, PromptBuilder
 """
 
 import json
@@ -15,14 +18,15 @@ from backend.fetchers.base_alt import BaseFetcher
 
 
 class LLMFetcher(BaseFetcher):
-    """Fetches LLM-generated market analysis reports."""
+    """Fetches LLM-generated market analysis reports.
+
+    Now delegates to the backend.llm_inference package for actual
+    LLM API calls. Maintains the BaseFetcher interface for pipeline
+    integration.
+    """
 
     SOURCE_NAME = "llm_inference"
     CONFIG_KEY = ""  # Managed internally — checks for OPENAI_API_KEY / ANTHROPIC_API_KEY
-
-    # LLM API endpoints
-    OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-    ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
     def _check_mock_mode(self) -> bool:
         """Override: check for any LLM API key."""
@@ -45,7 +49,15 @@ class LLMFetcher(BaseFetcher):
                 self._record_success()
                 return self._build_result(data, extra={"method": "mock"})
 
-            # Try OpenAI first
+            # Try using the new llm_inference package
+            try:
+                data = await self._call_via_package(market_context)
+                self._record_success()
+                return self._build_result(data, extra={"method": "llm_inference"})
+            except Exception as e:
+                self.logger.warning(f"llm_inference package failed: {e}, trying direct API")
+
+            # Fallback: direct OpenAI call
             try:
                 data = await self._call_openai(market_context)
                 self._record_success()
@@ -53,7 +65,7 @@ class LLMFetcher(BaseFetcher):
             except Exception as e:
                 self.logger.warning(f"OpenAI failed: {e}, trying Anthropic")
 
-            # Try Anthropic
+            # Fallback: direct Anthropic call
             try:
                 data = await self._call_anthropic(market_context)
                 self._record_success()
@@ -72,6 +84,39 @@ class LLMFetcher(BaseFetcher):
                 self._generate_mock_analysis(market_context),
                 extra={"method": "mock_error", "error": str(e)},
             )
+
+    async def _call_via_package(self, context: Optional[dict]) -> dict[str, Any]:
+        """Call LLM via the new llm_inference package."""
+        from backend.llm_inference import get_default_client, PromptBuilder, ResponseParser
+
+        client = get_default_client()
+        builder = PromptBuilder()
+
+        # Build prompt from context
+        if context:
+            prompt = builder.build_signal_prompt(context)
+            system_prompt = builder.get_system_prompt("signal")
+        else:
+            prompt = "Provide a brief market regime assessment."
+            system_prompt = builder.get_system_prompt("regime")
+
+        # Call LLM
+        result = await client.complete(prompt, system_prompt=system_prompt)
+        content = result.get("content", "")
+
+        # Parse response
+        parser = ResponseParser()
+        parsed = parser.parse_signal_response(content)
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "provider": result.get("provider", client.provider_name),
+            "model": result.get("model", client.model),
+            "analysis": content,
+            "signal": parsed.get("signal", "neutral"),
+            "confidence": parsed.get("confidence", 0.5),
+            "key_levels": parsed.get("key_levels", {}),
+        }
 
     async def _call_openai(self, context: Optional[dict]) -> dict[str, Any]:
         """Call OpenAI API for market analysis."""
@@ -92,7 +137,11 @@ class LLMFetcher(BaseFetcher):
             "temperature": 0.3,
         }
 
-        result = await self._post_json(self.OPENAI_URL, json_body=body, headers=headers)
+        result = await self._post_json(
+            "https://api.openai.com/v1/chat/completions",
+            json_body=body,
+            headers=headers,
+        )
         content = result["choices"][0]["message"]["content"]
 
         return {
@@ -120,7 +169,11 @@ class LLMFetcher(BaseFetcher):
             "messages": [{"role": "user", "content": prompt}],
         }
 
-        result = await self._post_json(self.ANTHROPIC_URL, json_body=body, headers=headers)
+        result = await self._post_json(
+            "https://api.anthropic.com/v1/messages",
+            json_body=body,
+            headers=headers,
+        )
         content = result["content"][0]["text"]
 
         return {

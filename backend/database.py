@@ -242,7 +242,10 @@ CREATE TABLE IF NOT EXISTS signal_alerts (
     hawkes_branching_ratio  REAL,
     details                 TEXT,
     acknowledged            BOOLEAN DEFAULT 0,
-    created_at              DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at              DATETIME DEFAULT CURRENT_TIMESTAMP,
+    outcome                 TEXT DEFAULT NULL,
+    forward_return          REAL DEFAULT NULL,
+    outcome_checked_at      TEXT DEFAULT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_signal_alerts_level
     ON signal_alerts (alert_level, trigger_time DESC);
@@ -454,6 +457,18 @@ async def init_db() -> None:
 
         # Seed default config
         await conn.executescript(SEED_CONFIG)
+
+        # Add outcome tracking columns to signal_alerts (idempotent ALTER TABLE)
+        alter_statements = [
+            "ALTER TABLE signal_alerts ADD COLUMN outcome TEXT DEFAULT NULL",
+            "ALTER TABLE signal_alerts ADD COLUMN forward_return REAL DEFAULT NULL",
+            "ALTER TABLE signal_alerts ADD COLUMN outcome_checked_at TEXT DEFAULT NULL",
+        ]
+        for stmt in alter_statements:
+            try:
+                await conn.execute(stmt)
+            except Exception:
+                pass  # Column already exists
 
         await conn.commit()
         logger.info("Database schema initialized successfully (11 tables + 5 views)")

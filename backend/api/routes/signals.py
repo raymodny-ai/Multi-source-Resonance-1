@@ -9,6 +9,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from backend.database import get_db
+from backend.quant.signal_outcomes import SignalOutcomeTracker
 
 logger = logging.getLogger(__name__)
 
@@ -150,3 +151,33 @@ async def acknowledge_alert(alert_id: int):
         )
 
     return {"ok": True, "message": f"Alert {alert_id} acknowledged"}
+
+
+@router.get("/outcomes")
+async def signal_outcomes(
+    days: int = Query(30, ge=1, le=365, description="Lookback window in days"),
+):
+    """Signal outcome statistics: false positive rate and hit rate over the last N days."""
+    tracker = SignalOutcomeTracker()
+    async with get_db() as db:
+        fpr = await tracker.get_false_positive_rate(db, days=days)
+        perf = await tracker.get_signal_performance(db, days=days)
+    return {
+        "lookback_days": days,
+        "false_positive_rate": fpr,
+        **perf,
+    }
+
+
+@router.get("/performance")
+async def signal_performance(
+    days: int = Query(90, ge=1, le=365, description="Lookback window in days"),
+):
+    """Detailed signal performance: hit rate, average return, max drawdown."""
+    tracker = SignalOutcomeTracker()
+    async with get_db() as db:
+        perf = await tracker.get_signal_performance(db, days=days)
+    return {
+        "lookback_days": days,
+        **perf,
+    }
