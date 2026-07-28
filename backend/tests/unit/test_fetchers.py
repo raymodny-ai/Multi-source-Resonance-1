@@ -215,7 +215,7 @@ class TestYFinanceFetcher:
 
 
 # ===========================================================================
-# Crypto Fetcher (base_alt.py variant)
+# Crypto Fetcher (migrated to base.py)
 # ===========================================================================
 
 class TestCryptoFetcher:
@@ -224,7 +224,8 @@ class TestCryptoFetcher:
     async def test_mock_data_structure(self):
         from backend.fetchers.crypto_fetcher import CryptoFetcher
 
-        fetcher = CryptoFetcher()
+        config = _make_settings()
+        fetcher = CryptoFetcher(config)
         data = fetcher._generate_mock_data()
         assert "btc_funding_rate" in data
         assert "btc_oi" in data
@@ -235,12 +236,11 @@ class TestCryptoFetcher:
     async def test_fetch_returns_result(self):
         from backend.fetchers.crypto_fetcher import CryptoFetcher
 
-        fetcher = CryptoFetcher()
+        config = _make_settings()
+        fetcher = CryptoFetcher(config)
         result = await fetcher.fetch()
-        assert "source" in result
+        assert "btc_funding_rate" in result
         assert "timestamp" in result
-        assert "data" in result
-        assert result["source"] == "crypto_derivatives"
 
 
 # ===========================================================================
@@ -253,7 +253,8 @@ class TestDarkpoolFetcher:
     async def test_mock_data_structure(self):
         from backend.fetchers.darkpool_fetcher import DarkpoolFetcher
 
-        fetcher = DarkpoolFetcher()
+        config = _make_settings()
+        fetcher = DarkpoolFetcher(config)
         data = fetcher._generate_mock_data()
         assert "dix_value" in data
         assert "date" in data
@@ -271,13 +272,12 @@ class TestFlowFetcher:
     async def test_mock_data_structure(self):
         from backend.fetchers.flow_fetcher import FlowFetcher
 
-        fetcher = FlowFetcher()
+        config = _make_settings()
+        fetcher = FlowFetcher(config)
         result = await fetcher.fetch()
-        assert result["source"] == "money_flow"
-        data = result["data"]
-        assert "net_money_flow" in data
-        assert "institutional_flow" in data
-        assert "flow_direction" in data
+        assert "net_money_flow" in result
+        assert "institutional_flow" in result
+        assert "flow_direction" in result
 
 
 # ===========================================================================
@@ -290,13 +290,12 @@ class TestSentimentFetcher:
     async def test_mock_data_structure(self):
         from backend.fetchers.sentiment_fetcher import SentimentFetcher
 
-        fetcher = SentimentFetcher()
+        config = _make_settings()
+        fetcher = SentimentFetcher(config)
         result = await fetcher.fetch()
-        assert result["source"] == "market_sentiment"
-        data = result["data"]
-        assert "fear_greed_index" in data
-        assert "fear_greed_label" in data
-        assert "aaii_bull_pct" in data
+        assert "fear_greed_index" in result
+        assert "fear_greed_label" in result
+        assert "aaii_bull_pct" in result
 
 
 # ===========================================================================
@@ -309,14 +308,13 @@ class TestMacroFetcher:
     async def test_mock_data_structure(self):
         from backend.fetchers.macro_fetcher import MacroFetcher
 
-        fetcher = MacroFetcher()
+        config = _make_settings()
+        fetcher = MacroFetcher(config)
         result = await fetcher.fetch()
-        assert result["source"] == "macro_data"
-        data = result["data"]
-        assert "treasury_2y" in data
-        assert "treasury_10y" in data
-        assert "yield_curve_slope" in data
-        assert "fed_funds_rate" in data
+        assert "treasury_2y" in result
+        assert "treasury_10y" in result
+        assert "yield_curve_slope" in result
+        assert "fed_funds_rate" in result
 
 
 # ===========================================================================
@@ -329,14 +327,13 @@ class TestSectorFetcher:
     async def test_mock_data_structure(self):
         from backend.fetchers.sector_fetcher import SectorFetcher
 
-        fetcher = SectorFetcher()
+        config = _make_settings()
+        fetcher = SectorFetcher(config)
         result = await fetcher.fetch()
-        assert result["source"] == "sector_rotation"
-        data = result["data"]
-        assert "sector_performance" in data
-        assert "rotation_signal" in data
-        assert "best_sector" in data
-        assert data["rotation_signal"] in ("risk_on", "risk_off", "neutral")
+        assert "sector_performance" in result
+        assert "rotation_signal" in result
+        assert "best_sector" in result
+        assert result["rotation_signal"] in ("risk_on", "risk_off", "neutral")
 
 
 # ===========================================================================
@@ -349,14 +346,13 @@ class TestPutCallFetcher:
     async def test_mock_data_structure(self):
         from backend.fetchers.put_call_fetcher import PutCallFetcher
 
-        fetcher = PutCallFetcher()
+        config = _make_settings()
+        fetcher = PutCallFetcher(config)
         result = await fetcher.fetch()
-        assert result["source"] == "put_call_ratio"
-        data = result["data"]
-        assert "equity_put_call_ratio" in data
-        assert "index_put_call_ratio" in data
-        assert "total_put_call_ratio" in data
-        assert "pcr_signal" in data
+        assert "equity_put_call_ratio" in result
+        assert "index_put_call_ratio" in result
+        assert "total_put_call_ratio" in result
+        assert "pcr_signal" in result
 
 
 # ===========================================================================
@@ -369,14 +365,13 @@ class TestVIXTermFetcher:
     async def test_mock_data_structure(self):
         from backend.fetchers.vix_term_fetcher import VIXTermFetcher
 
-        fetcher = VIXTermFetcher()
+        config = _make_settings()
+        fetcher = VIXTermFetcher(config)
         result = await fetcher.fetch()
-        assert result["source"] == "vix_term_structure"
-        data = result["data"]
-        assert "vix_spot" in data
-        assert "vx1" in data
-        assert "vx2" in data
-        assert "term_structure_state" in data
+        assert "vix_spot" in result
+        assert "vx1" in result
+        assert "vx2" in result
+        assert "term_structure_state" in result
 
 
 # ===========================================================================
@@ -389,11 +384,10 @@ class TestLLMFetcher:
     async def test_mock_data_structure(self):
         from backend.fetchers.llm_fetcher import LLMFetcher
 
-        fetcher = LLMFetcher()
+        config = _make_settings()
+        fetcher = LLMFetcher(config)
         result = await fetcher.fetch()
-        assert result["source"] == "llm_inference"
-        data = result["data"]
-        assert "analysis" in data
-        assert "signal" in data
-        assert "confidence" in data
-        assert data["signal"] in ("bullish", "bearish", "neutral")
+        assert "analysis" in result
+        assert "signal" in result
+        assert "confidence" in result
+        assert result["signal"] in ("bullish", "bearish", "neutral")

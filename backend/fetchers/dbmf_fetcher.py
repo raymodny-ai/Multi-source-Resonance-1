@@ -12,33 +12,38 @@ import random
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from backend.fetchers.base_alt import BaseFetcher
+from backend.fetchers.base import BaseFetcher
 
 
 class DBMFFetcher(BaseFetcher):
     """Fetches DBMF moving average data for recovery detection."""
 
-    SOURCE_NAME = "dbmf"
-    CONFIG_KEY = ""  # Public data, no API key needed
+    @property
+    def source_name(self) -> str:
+        return "dbmf"
+
+    @property
+    def _mock_mode_key(self) -> str:
+        return "gexmetrix"  # Public data, no API key needed
 
     # DBMF ticker on Yahoo Finance
     DBMF_SYMBOL = "DBMF"
 
-    def _check_mock_mode(self) -> bool:
+    def _is_mock_mode(self) -> bool:
         """DBMF is public — never in mock mode unless network unavailable."""
         return False
 
-    async def fetch(self) -> dict[str, Any]:
+    async def fetch(self) -> dict:
         """Fetch DBMF value and moving average data."""
         try:
-            data = await self._fetch_dbmf()
-            self._record_success()
-            return self._build_result(data, extra={"method": "yfinance"})
+            return await self._fetch_dbmf()
         except Exception as e:
             self.logger.warning(f"DBMF fetch failed: {e}, returning mock")
-            self._record_error(str(e))
-            data = self._generate_mock_data()
-            return self._build_result(data, extra={"method": "mock_fallback", "error": str(e)})
+            return self._generate_mock_data()
+
+    def _mock_data(self) -> dict:
+        """Return mock DBMF data."""
+        return self._generate_mock_data()
 
     async def _fetch_dbmf(self) -> dict[str, Any]:
         """Fetch DBMF data via yfinance or direct API."""

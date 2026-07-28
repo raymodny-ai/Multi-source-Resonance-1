@@ -12,35 +12,40 @@ import random
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from backend.fetchers.base_alt import BaseFetcher
+from backend.fetchers.base import BaseFetcher
 
 
 class StockGridFetcher(BaseFetcher):
     """Fetches StockGrid price/volume slope and divergence data."""
 
-    SOURCE_NAME = "stockgrid"
-    CONFIG_KEY = ""  # Public data, no API key needed
+    @property
+    def source_name(self) -> str:
+        return "stockgrid"
+
+    @property
+    def _mock_mode_key(self) -> str:
+        return "gexmetrix"  # Public data, no API key needed
 
     STOCKGRID_API_URL = "https://stockgrid.io/api/screener"
 
     # Symbols to monitor
     SYMBOLS = ["SPY", "QQQ", "IWM"]
 
-    def _check_mock_mode(self) -> bool:
+    def _is_mock_mode(self) -> bool:
         """StockGrid is public — never in mock mode unless network unavailable."""
         return False
 
-    async def fetch(self) -> dict[str, Any]:
+    async def fetch(self) -> dict:
         """Fetch StockGrid slope and divergence data."""
         try:
-            data = await self._fetch_stockgrid()
-            self._record_success()
-            return self._build_result(data, extra={"method": "stockgrid_api"})
+            return await self._fetch_stockgrid()
         except Exception as e:
             self.logger.warning(f"StockGrid fetch failed: {e}, returning mock")
-            self._record_error(str(e))
-            data = self._generate_mock_data()
-            return self._build_result(data, extra={"method": "mock_fallback", "error": str(e)})
+            return self._generate_mock_data()
+
+    def _mock_data(self) -> dict:
+        """Return mock StockGrid data."""
+        return self._generate_mock_data()
 
     async def _fetch_stockgrid(self) -> dict[str, Any]:
         """Fetch slope data from StockGrid API."""

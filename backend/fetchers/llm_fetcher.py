@@ -14,7 +14,7 @@ import random
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from backend.fetchers.base_alt import BaseFetcher
+from backend.fetchers.base import BaseFetcher
 
 
 class LLMFetcher(BaseFetcher):
@@ -25,10 +25,15 @@ class LLMFetcher(BaseFetcher):
     integration.
     """
 
-    SOURCE_NAME = "llm_inference"
-    CONFIG_KEY = ""  # Managed internally — checks for OPENAI_API_KEY / ANTHROPIC_API_KEY
+    @property
+    def source_name(self) -> str:
+        return "llm_inference"
 
-    def _check_mock_mode(self) -> bool:
+    @property
+    def _mock_mode_key(self) -> str:
+        return ""  # Managed internally — checks for OPENAI_API_KEY / ANTHROPIC_API_KEY
+
+    def _is_mock_mode(self) -> bool:
         """Override: check for any LLM API key."""
         import os
         has_openai = bool(os.environ.get("OPENAI_API_KEY"))
@@ -38,52 +43,31 @@ class LLMFetcher(BaseFetcher):
     async def fetch(
         self, market_context: Optional[dict[str, Any]] = None
     ) -> dict[str, Any]:
-        """Fetch LLM analysis of current market conditions.
-
-        Args:
-            market_context: Optional dict with current market data to analyse.
-        """
+        """Fetch LLM analysis of current market conditions."""
+        # Try using the new llm_inference package
         try:
-            if self._is_mock:
-                data = self._generate_mock_analysis(market_context)
-                self._record_success()
-                return self._build_result(data, extra={"method": "mock"})
-
-            # Try using the new llm_inference package
-            try:
-                data = await self._call_via_package(market_context)
-                self._record_success()
-                return self._build_result(data, extra={"method": "llm_inference"})
-            except Exception as e:
-                self.logger.warning(f"llm_inference package failed: {e}, trying direct API")
-
-            # Fallback: direct OpenAI call
-            try:
-                data = await self._call_openai(market_context)
-                self._record_success()
-                return self._build_result(data, extra={"method": "openai"})
-            except Exception as e:
-                self.logger.warning(f"OpenAI failed: {e}, trying Anthropic")
-
-            # Fallback: direct Anthropic call
-            try:
-                data = await self._call_anthropic(market_context)
-                self._record_success()
-                return self._build_result(data, extra={"method": "anthropic"})
-            except Exception as e:
-                self.logger.warning(f"Anthropic failed: {e}, falling back to template")
-
-            # Final fallback: template
-            data = self._generate_mock_analysis(market_context)
-            self._record_success()
-            return self._build_result(data, extra={"method": "template_fallback"})
-
+            return await self._call_via_package(market_context)
         except Exception as e:
-            self._record_error(str(e))
-            return self._build_result(
-                self._generate_mock_analysis(market_context),
-                extra={"method": "mock_error", "error": str(e)},
-            )
+            self.logger.warning(f"llm_inference package failed: {e}, trying direct API")
+
+        # Fallback: direct OpenAI call
+        try:
+            return await self._call_openai(market_context)
+        except Exception as e:
+            self.logger.warning(f"OpenAI failed: {e}, trying Anthropic")
+
+        # Fallback: direct Anthropic call
+        try:
+            return await self._call_anthropic(market_context)
+        except Exception as e:
+            self.logger.warning(f"Anthropic failed: {e}, falling back to template")
+
+        # Final fallback: template
+        return self._generate_mock_analysis(market_context)
+
+    def _mock_data(self) -> dict:
+        """Return mock LLM analysis."""
+        return self._generate_mock_analysis(None)
 
     async def _call_via_package(self, context: Optional[dict]) -> dict[str, Any]:
         """Call LLM via the new llm_inference package."""

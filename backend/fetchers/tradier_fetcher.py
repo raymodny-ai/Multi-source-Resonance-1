@@ -13,14 +13,19 @@ import random
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from backend.fetchers.base_alt import BaseFetcher
+from backend.fetchers.base import BaseFetcher
 
 
 class TradierFetcher(BaseFetcher):
     """Fetches Tradier option chain data."""
 
-    SOURCE_NAME = "tradier"
-    CONFIG_KEY = ""  # Requires TRADIER_API_KEY env var
+    @property
+    def source_name(self) -> str:
+        return "tradier"
+
+    @property
+    def _mock_mode_key(self) -> str:
+        return "gexmetrix"  # Requires TRADIER_API_KEY env var
 
     TRADIER_API_URL = "https://api.tradier.com/v1/markets/options"
     TRADIER_CHAIN_URL = "https://api.tradier.com/v1/markets/options/chains"
@@ -28,26 +33,21 @@ class TradierFetcher(BaseFetcher):
     # Symbols to fetch option chains for
     SYMBOLS = ["SPY", "QQQ", "IWM"]
 
-    def _check_mock_mode(self) -> bool:
+    def _is_mock_mode(self) -> bool:
         """Mock mode when Tradier API key is absent."""
         return not bool(os.environ.get("TRADIER_API_KEY"))
 
-    async def fetch(self) -> dict[str, Any]:
+    async def fetch(self) -> dict:
         """Fetch Tradier option chain data."""
         try:
-            if self._is_mock:
-                data = self._generate_mock_data()
-                self._record_success()
-                return self._build_result(data, extra={"method": "mock"})
-
-            data = await self._fetch_tradier()
-            self._record_success()
-            return self._build_result(data, extra={"method": "tradier_api"})
+            return await self._fetch_tradier()
         except Exception as e:
             self.logger.warning(f"Tradier fetch failed: {e}, returning mock")
-            self._record_error(str(e))
-            data = self._generate_mock_data()
-            return self._build_result(data, extra={"method": "mock_fallback", "error": str(e)})
+            return self._generate_mock_data()
+
+    def _mock_data(self) -> dict:
+        """Return mock Tradier option chain data."""
+        return self._generate_mock_data()
 
     async def _fetch_tradier(self) -> dict[str, Any]:
         """Fetch option chains from Tradier API."""

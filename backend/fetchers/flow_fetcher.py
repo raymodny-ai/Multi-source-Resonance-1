@@ -10,27 +10,27 @@ import random
 from datetime import datetime, timezone
 from typing import Any
 
-from backend.fetchers.base_alt import BaseFetcher
+from backend.fetchers.base import BaseFetcher
 
 
 class FlowFetcher(BaseFetcher):
     """Fetches money flow data: institutional buying/selling pressure."""
 
-    SOURCE_NAME = "money_flow"
-    CONFIG_KEY = ""  # Always mock — no dedicated API key
+    @property
+    def source_name(self) -> str:
+        return "money_flow"
 
-    async def fetch(self) -> dict[str, Any]:
+    @property
+    def _mock_mode_key(self) -> str:
+        return ""  # Always mock
+
+    async def fetch(self) -> dict:
         """Fetch money flow data."""
-        try:
-            data = self._generate_mock_data()
-            self._record_success()
-            return self._build_result(data, extra={"method": "mock"})
-        except Exception as e:
-            self._record_error(str(e))
-            return self._build_result(
-                self._generate_mock_data(),
-                extra={"method": "mock_error", "error": str(e)},
-            )
+        return self._generate_mock_data()
+
+    def _mock_data(self) -> dict:
+        """Return mock money flow data."""
+        return self._generate_mock_data()
 
     def _generate_mock_data(self) -> dict[str, Any]:
         """Generate realistic mock money flow data."""

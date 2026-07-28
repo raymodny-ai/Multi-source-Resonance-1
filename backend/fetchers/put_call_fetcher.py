@@ -10,43 +10,33 @@ import random
 from datetime import datetime, timezone
 from typing import Any
 
-from backend.fetchers.base_alt import BaseFetcher
+from backend.fetchers.base import BaseFetcher
 
 
 class PutCallFetcher(BaseFetcher):
     """Fetches Put/Call Ratio data from CBOE."""
 
-    SOURCE_NAME = "put_call_ratio"
-    CONFIG_KEY = ""  # CBOE public data is free, but we mock by default
+    @property
+    def source_name(self) -> str:
+        return "put_call_ratio"
+
+    @property
+    def _mock_mode_key(self) -> str:
+        return ""  # CBOE public data is free, but we mock by default
 
     CBOE_PCR_URL = "https://cdn.cboe.com/api/us/daily_market_statistics/spx/pc_data.json"
 
-    async def fetch(self) -> dict[str, Any]:
+    async def fetch(self) -> dict:
         """Fetch put/call ratio data."""
         try:
-            if self._is_mock:
-                data = self._generate_mock_data()
-                self._record_success()
-                return self._build_result(data, extra={"method": "mock"})
-
-            # Try CBOE public data
-            try:
-                data = await self._fetch_cboe()
-                self._record_success()
-                return self._build_result(data, extra={"method": "cboe"})
-            except Exception as e:
-                self.logger.warning(f"CBOE fetch failed: {e}, returning mock")
-
-            data = self._generate_mock_data()
-            self._record_success()
-            return self._build_result(data, extra={"method": "mock_fallback"})
-
+            return await self._fetch_cboe()
         except Exception as e:
-            self._record_error(str(e))
-            return self._build_result(
-                self._generate_mock_data(),
-                extra={"method": "mock_error", "error": str(e)},
-            )
+            self.logger.warning(f"CBOE fetch failed: {e}, returning mock")
+            return self._generate_mock_data()
+
+    def _mock_data(self) -> dict:
+        """Return mock put/call ratio data."""
+        return self._generate_mock_data()
 
     async def _fetch_cboe(self) -> dict[str, Any]:
         """Fetch from CBOE public API."""

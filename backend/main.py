@@ -34,6 +34,13 @@ from backend.api.websocket import router as ws_router, setup_event_bus_bridge
 from backend.config import settings
 from backend.database import close_db, init_db
 from backend.eventbus import EventBus
+from backend.fetchers import (
+    GEXMetrixFetcher, AXLFIFetcher, CBOEFetcher, VIXFetcher, YFinanceFetcher,
+    CryptoFetcher, DarkpoolFetcher, FlowFetcher, LLMFetcher, MacroFetcher,
+    PutCallFetcher, SectorFetcher, SentimentFetcher, VIXTermFetcher,
+    SqueezeMetricsFetcher, FinraFetcher, CCDataFetcher, StockGridFetcher,
+    CoinglassFetcher, TradierFetcher, DBMFFetcher,
+)
 from backend.models.common import ErrorResponse, HealthCheck
 from backend.pipeline import Pipeline
 from backend.utils.scheduler import start_scheduler, stop_scheduler
@@ -80,7 +87,18 @@ async def lifespan(app: FastAPI):
     logger.info("EventBus initialized")
 
     # Initialize Pipeline V2.0 (collect → analyse → score)
-    pipeline = Pipeline(config=settings, event_bus=event_bus)
+    # Instantiate all 21 fetchers with shared config
+    fetchers = [
+        GEXMetrixFetcher(settings), AXLFIFetcher(settings), CBOEFetcher(settings),
+        VIXFetcher(settings), YFinanceFetcher(settings),
+        CryptoFetcher(settings), DarkpoolFetcher(settings), FlowFetcher(settings),
+        LLMFetcher(settings), MacroFetcher(settings), PutCallFetcher(settings),
+        SectorFetcher(settings), SentimentFetcher(settings), VIXTermFetcher(settings),
+        SqueezeMetricsFetcher(settings), FinraFetcher(settings), CCDataFetcher(settings),
+        StockGridFetcher(settings), CoinglassFetcher(settings), TradierFetcher(settings),
+        DBMFFetcher(settings),
+    ]
+    pipeline = Pipeline(config=settings, event_bus=event_bus, fetchers=fetchers)
     app.state.pipeline = pipeline
     logger.info("Pipeline V2.0 initialized")
 

@@ -10,35 +10,40 @@ import random
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from backend.fetchers.base_alt import BaseFetcher
+from backend.fetchers.base import BaseFetcher
 
 
 class FinraFetcher(BaseFetcher):
     """Fetches FINRA short interest data."""
 
-    SOURCE_NAME = "finra"
-    CONFIG_KEY = ""  # FINRA is public data
+    @property
+    def source_name(self) -> str:
+        return "finra"
+
+    @property
+    def _mock_mode_key(self) -> str:
+        return "gexmetrix"  # FINRA is public data
 
     FINRA_API_URL = "https://api.finra.org/data/groups/shortInterest"
 
     # Monitored symbols
     SYMBOLS = ["SPY", "QQQ", "IWM"]
 
-    def _check_mock_mode(self) -> bool:
+    def _is_mock_mode(self) -> bool:
         """FINRA is public — never in mock mode unless network unavailable."""
         return False
 
-    async def fetch(self) -> dict[str, Any]:
+    async def fetch(self) -> dict:
         """Fetch FINRA short interest data for monitored symbols."""
         try:
-            data = await self._fetch_finra()
-            self._record_success()
-            return self._build_result(data, extra={"method": "finra_api"})
+            return await self._fetch_finra()
         except Exception as e:
             self.logger.warning(f"FINRA fetch failed: {e}, returning mock")
-            self._record_error(str(e))
-            data = self._generate_mock_data()
-            return self._build_result(data, extra={"method": "mock_fallback", "error": str(e)})
+            return self._generate_mock_data()
+
+    def _mock_data(self) -> dict:
+        """Return mock FINRA short interest data."""
+        return self._generate_mock_data()
 
     async def _fetch_finra(self) -> dict[str, Any]:
         """Fetch short interest from FINRA API."""

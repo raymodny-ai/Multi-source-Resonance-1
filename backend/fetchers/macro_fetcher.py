@@ -11,44 +11,35 @@ import random
 from datetime import datetime, timezone
 from typing import Any
 
-from backend.fetchers.base_alt import BaseFetcher
+from backend.fetchers.base import BaseFetcher
 
 
 class MacroFetcher(BaseFetcher):
     """Fetches macroeconomic indicators."""
 
-    SOURCE_NAME = "macro_data"
-    CONFIG_KEY = ""  # Always mock by default (FRED key not in config)
+    @property
+    def source_name(self) -> str:
+        return "macro_data"
+
+    @property
+    def _mock_mode_key(self) -> str:
+        return ""  # Always mock by default (FRED key not in config)
 
     # FRED API (optional — requires FRED_API_KEY env var)
     FRED_URL = "https://api.stlouisfed.org/fred/series/observations"
 
-    async def fetch(self) -> dict[str, Any]:
+    async def fetch(self) -> dict:
         """Fetch macro data."""
+        # Try FRED API
         try:
-            if self._is_mock:
-                data = self._generate_mock_data()
-                self._record_success()
-                return self._build_result(data, extra={"method": "mock"})
-
-            # Try FRED API
-            try:
-                data = await self._fetch_fred()
-                self._record_success()
-                return self._build_result(data, extra={"method": "fred"})
-            except Exception as e:
-                self.logger.warning(f"FRED fetch failed: {e}, returning mock")
-
-            data = self._generate_mock_data()
-            self._record_success()
-            return self._build_result(data, extra={"method": "mock_fallback"})
-
+            return await self._fetch_fred()
         except Exception as e:
-            self._record_error(str(e))
-            return self._build_result(
-                self._generate_mock_data(),
-                extra={"method": "mock_error", "error": str(e)},
-            )
+            self.logger.warning(f"FRED fetch failed: {e}, returning mock")
+            return self._generate_mock_data()
+
+    def _mock_data(self) -> dict:
+        """Return mock macro data."""
+        return self._generate_mock_data()
 
     async def _fetch_fred(self) -> dict[str, Any]:
         """Fetch from FRED API (requires FRED_API_KEY env var)."""

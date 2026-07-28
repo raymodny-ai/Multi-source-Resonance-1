@@ -12,32 +12,37 @@ import random
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from backend.fetchers.base_alt import BaseFetcher
+from backend.fetchers.base import BaseFetcher
 
 
 class SqueezeMetricsFetcher(BaseFetcher):
     """Fetches SqueezeMetrics DIX/GEX data from public CSV."""
 
-    SOURCE_NAME = "squeezemetrics"
-    CONFIG_KEY = ""  # Public data, no API key needed
+    @property
+    def source_name(self) -> str:
+        return "squeezemetrics"
+
+    @property
+    def _mock_mode_key(self) -> str:
+        return "gexmetrix"  # Public data, no API key needed
 
     CSV_URL = "https://squeezemetrics.com/monitor/dix"
 
-    def _check_mock_mode(self) -> bool:
+    def _is_mock_mode(self) -> bool:
         """SqueezeMetrics is public — never in mock mode unless network unavailable."""
         return False
 
-    async def fetch(self) -> dict[str, Any]:
+    async def fetch(self) -> dict:
         """Fetch SqueezeMetrics DIX + GEX data."""
         try:
-            data = await self._fetch_csv()
-            self._record_success()
-            return self._build_result(data, extra={"method": "squeezemetrics_csv"})
+            return await self._fetch_csv()
         except Exception as e:
             self.logger.warning(f"SqueezeMetrics fetch failed: {e}, returning mock")
-            self._record_error(str(e))
-            data = self._generate_mock_data()
-            return self._build_result(data, extra={"method": "mock_fallback", "error": str(e)})
+            return self._generate_mock_data()
+
+    def _mock_data(self) -> dict:
+        """Return mock SqueezeMetrics data."""
+        return self._generate_mock_data()
 
     async def _fetch_csv(self) -> dict[str, Any]:
         """Parse SqueezeMetrics public DIX+GEX CSV."""

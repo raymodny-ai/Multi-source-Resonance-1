@@ -10,44 +10,33 @@ import random
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from backend.fetchers.base_alt import BaseFetcher
+from backend.fetchers.base import BaseFetcher
 
 
 class DarkpoolFetcher(BaseFetcher):
     """Fetches dark pool metrics: DIX, short ratios, EMA crossovers."""
 
-    SOURCE_NAME = "dark_pool_metrics"
-    CONFIG_KEY = "darkpool"
+    @property
+    def source_name(self) -> str:
+        return "dark_pool_metrics"
+
+    @property
+    def _mock_mode_key(self) -> str:
+        return "darkpool"
 
     SQUEEZEMETRICS_CSV_URL = "https://squeezemetrics.com/monitor/dix"
 
-    async def fetch(self) -> dict[str, Any]:
+    async def fetch(self) -> dict:
         """Fetch dark pool data with fallback chain."""
         try:
-            if self._is_mock:
-                data = self._generate_mock_data()
-                self._record_success()
-                return self._build_result(data, extra={"method": "mock"})
-
-            # Try SqueezeMetrics public CSV
-            try:
-                data = await self._fetch_squeezemetrics()
-                self._record_success()
-                return self._build_result(data, extra={"method": "squeezemetrics"})
-            except Exception as e:
-                self.logger.warning(f"SqueezeMetrics failed: {e}, returning mock")
-
-            # Fallback to mock
-            data = self._generate_mock_data()
-            self._record_success()
-            return self._build_result(data, extra={"method": "mock_fallback"})
-
+            return await self._fetch_squeezemetrics()
         except Exception as e:
-            self._record_error(str(e))
-            return self._build_result(
-                self._generate_mock_data(),
-                extra={"method": "mock_error_fallback", "error": str(e)},
-            )
+            self.logger.warning(f"SqueezeMetrics failed: {e}, returning mock")
+            return self._generate_mock_data()
+
+    def _mock_data(self) -> dict:
+        """Return mock dark pool metrics."""
+        return self._generate_mock_data()
 
     async def _fetch_squeezemetrics(self) -> dict[str, Any]:
         """Fetch from SqueezeMetrics public DIX CSV."""

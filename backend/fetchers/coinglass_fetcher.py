@@ -13,37 +13,37 @@ import random
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from backend.fetchers.base_alt import BaseFetcher
+from backend.fetchers.base import BaseFetcher
 
 
 class CoinglassFetcher(BaseFetcher):
     """Fetches Coinglass liquidation and OI data."""
 
-    SOURCE_NAME = "coinglass"
-    CONFIG_KEY = "crypto"
+    @property
+    def source_name(self) -> str:
+        return "coinglass"
+
+    @property
+    def _mock_mode_key(self) -> str:
+        return "crypto"
 
     COINGLASS_API_URL = "https://open-api.coinglass.com/public/v2"
 
-    def _check_mock_mode(self) -> bool:
+    def _is_mock_mode(self) -> bool:
         """Mock mode when Coinglass API key is absent."""
         return not bool(os.environ.get("COINGLASS_API_KEY"))
 
-    async def fetch(self) -> dict[str, Any]:
+    async def fetch(self) -> dict:
         """Fetch Coinglass liquidation and OI data."""
         try:
-            if self._is_mock:
-                data = self._generate_mock_data()
-                self._record_success()
-                return self._build_result(data, extra={"method": "mock"})
-
-            data = await self._fetch_coinglass()
-            self._record_success()
-            return self._build_result(data, extra={"method": "coinglass_api"})
+            return await self._fetch_coinglass()
         except Exception as e:
             self.logger.warning(f"Coinglass fetch failed: {e}, returning mock")
-            self._record_error(str(e))
-            data = self._generate_mock_data()
-            return self._build_result(data, extra={"method": "mock_fallback", "error": str(e)})
+            return self._generate_mock_data()
+
+    def _mock_data(self) -> dict:
+        """Return mock Coinglass data."""
+        return self._generate_mock_data()
 
     async def _fetch_coinglass(self) -> dict[str, Any]:
         """Fetch from Coinglass API."""

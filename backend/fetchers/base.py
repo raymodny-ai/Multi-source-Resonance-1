@@ -214,6 +214,28 @@ class BaseFetcher(ABC):
         response.raise_for_status()
         return response
 
+    async def _get_json(
+        self,
+        url: str,
+        params: Optional[dict] = None,
+        headers: Optional[dict] = None,
+    ) -> Any:
+        """Perform a GET request and return parsed JSON."""
+        response = await self._http_get(url, headers=headers, params=params)
+        return response.json()
+
+    async def _post_json(
+        self,
+        url: str,
+        json_body: Any = None,
+        headers: Optional[dict] = None,
+    ) -> Any:
+        """Perform a POST request and return parsed JSON."""
+        client = await self._get_client()
+        response = await client.post(url, json=json_body, headers=headers)
+        response.raise_for_status()
+        return response.json()
+
     async def close(self) -> None:
         """Close the HTTP client session."""
         if self._http_client and not self._http_client.is_closed:

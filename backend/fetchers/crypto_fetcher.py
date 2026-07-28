@@ -10,14 +10,19 @@ import random
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from backend.fetchers.base_alt import BaseFetcher
+from backend.fetchers.base import BaseFetcher
 
 
 class CryptoFetcher(BaseFetcher):
     """Fetches crypto derivatives data: funding rates, OI, liquidations."""
 
-    SOURCE_NAME = "crypto_derivatives"
-    CONFIG_KEY = "crypto"  # Falls back to mock if crypto_api_key absent
+    @property
+    def source_name(self) -> str:
+        return "crypto_derivatives"
+
+    @property
+    def _mock_mode_key(self) -> str:
+        return "crypto"
 
     # Hyperliquid public endpoints (no key needed)
     HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info"
@@ -25,41 +30,29 @@ class CryptoFetcher(BaseFetcher):
     # CCData fallback
     CCDATA_URL = "https://rest.ccdata.io/v1"
 
-    async def fetch(self) -> dict[str, Any]:
+    async def fetch(self) -> dict:
         """Fetch crypto derivatives data with fallback chain."""
+        # Try Hyperliquid first (free, no key)
         try:
-            if self._is_mock:
-                data = self._generate_mock_data()
-                self._record_success()
-                return self._build_result(data, extra={"method": "mock"})
-
-            # Try Hyperliquid first (free, no key)
-            try:
-                data = await self._fetch_hyperliquid()
-                self._record_success()
-                return self._build_result(data, extra={"method": "hyperliquid"})
-            except Exception as e:
-                self.logger.warning(f"Hyperliquid failed: {e}, trying CCData fallback")
-
-            # Fallback to CCData (requires key)
-            from backend.config import settings
-            if settings.crypto_api_key:
-                data = await self._fetch_ccdata()
-                self._record_success()
-                return self._build_result(data, extra={"method": "ccdata"})
-
-            # No key for fallback — return mock
-            self.logger.warning("CCData key missing, returning mock data")
-            data = self._generate_mock_data()
-            self._record_success()
-            return self._build_result(data, extra={"method": "mock_fallback"})
-
+            return await self._fetch_hyperliquid()
         except Exception as e:
-            self._record_error(str(e))
-            return self._build_result(
-                self._generate_mock_data(),
-                extra={"method": "mock_error_fallback", "error": str(e)},
-            )
+            self.logger.warning(f"Hyperliquid failed: {e}, trying CCData fallback")
+
+        # Fallback to CCData (requires key)
+        from backend.config import settings
+        if settings.crypto_api_key:
+            try:
+                return await self._fetch_ccdata()
+            except Exception as e:
+                self.logger.warning(f"CCData failed: {e}")
+
+        # No key for fallback — return mock
+        self.logger.warning("CCData key missing, returning mock data")
+        return self._generate_mock_data()
+
+    def _mock_data(self) -> dict:
+        """Return mock crypto derivatives data."""
+        return self._generate_mock_data()
 
     async def _fetch_hyperliquid(self) -> dict[str, Any]:
         """Fetch from Hyperliquid public API."""
