@@ -76,6 +76,43 @@ async def job_check_signal_outcomes():
     logger.info(f"check_signal_outcomes result: evaluated {len(results)} signals")
 
 
+async def job_update_bayesian_weights():
+    """Daily 07:00 UTC: Update Bayesian dimension weights from last 90 days of outcomes."""
+    logger.info("Scheduled job: update_bayesian_weights")
+    try:
+        from backend.quant.scoring import _get_adapter
+        from backend.quant.signal_outcomes import SignalOutcomeTracker
+
+        adapter = _get_adapter()
+        tracker = SignalOutcomeTracker()
+
+        async with get_db() as db:
+            # Fetch evaluated signal outcomes from the last 90 days
+            cursor = await db.execute("""
+                SELECT gex_score, vix_score, crypto_score, darkpool_score,
+                       forward_return, trigger_time, alert_level
+                FROM signal_alerts
+                WHERE outcome IS NOT NULL
+                  AND outcome_checked_at >= datetime('now', '-90 days')
+                ORDER BY outcome_checked_at ASC
+            """)
+            rows = await cursor.fetchall()
+
+        if not rows:
+            logger.info("update_bayesian_weights: no evaluated outcomes in last 90 days")
+            return
+
+        outcomes = [dict(r) for r in rows]
+        new_weights = adapter.update_weights(outcomes)
+        logger.info(
+            f"update_bayesian_weights: updated from {len(outcomes)} outcomes "
+            f"→ {new_weights}"
+        )
+
+    except Exception as exc:
+        logger.error(f"update_bayesian_weights failed: {exc}", exc_info=True)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Registration
 # ─────────────────────────────────────────────────────────────────────────────
@@ -144,9 +181,18 @@ def register_jobs() -> None:
         replace_existing=True,
     )
 
+    # Daily 07:00 UTC: Bayesian weight update
+    scheduler.add_job(
+        job_update_bayesian_weights,
+        trigger=CronTrigger(hour=7, minute=0),
+        id="update_bayesian_weights",
+        name="Update Bayesian dimension weights (90-day window)",
+        replace_existing=True,
+    )
+
     logger.info(
-        "Scheduled 6 maintenance jobs: "
-        "hourly write-path check, daily vacuum/archive/backup/outcomes, weekly full backup"
+        "Scheduled 7 maintenance jobs: "
+        "hourly write-path check, daily vacuum/archive/backup/outcomes/weights, weekly full backup"
     )
 
 

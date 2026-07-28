@@ -282,6 +282,9 @@ class Pipeline:
         alert_level = self._compute_alert_level(total_score)
         scoring_result["alert_level"] = alert_level
 
+        # ── Bayesian weight update (post-scoring) ────────────────────────────
+        await self._update_bayesian_weights(scoring_result)
+
         await self.event_bus.publish(EventType.SCORING_COMPLETE, scoring_result)
         await self.event_bus.publish(EventType.SIGNAL_GENERATED, scoring_result)
 
@@ -339,6 +342,61 @@ class Pipeline:
         elif total_score >= self.LEVEL_THRESHOLDS["LEVEL_1"]:
             return "LEVEL_1"
         return "NONE"
+
+    # ── Bayesian weight update ────────────────────────────────────────────────
+
+    async def _update_bayesian_weights(self, scoring_result: dict) -> None:
+        """After scoring, feed latest signal outcome into BayesianWeightAdapter.
+
+        This is a lightweight best-effort update: if the adapter or database
+        is unavailable the error is logged but does not break the pipeline.
+        """
+        try:
+            from backend.quant.bayesian_weights import BayesianWeightAdapter
+            from backend.quant.scoring import _get_adapter
+            from backend.database import get_db
+
+            adapter = _get_adapter()
+
+            # Fetch the most recent evaluated signal outcome from the DB
+            async with get_db() as db:
+                cursor = await db.execute("""
+                    SELECT gex_score, vix_score, crypto_score, darkpool_score,
+                           forward_return, trigger_time, alert_level
+                    FROM signal_alerts
+                    WHERE outcome IS NOT NULL
+                    ORDER BY outcome_checked_at DESC
+                    LIMIT 1
+                """)
+                row = await cursor.fetchone()
+
+            if row is None:
+                return  # No evaluated outcomes yet
+
+            outcome_dict = {
+                "gex_score": row["gex_score"] or 0.0,
+                "vix_score": row["vix_score"] or 0.0,
+                "crypto_score": row["crypto_score"] or 0.0,
+                "darkpool_score": row["darkpool_score"] or 0.0,
+                "forward_return": row["forward_return"] or 0.0,
+                "trigger_time": row["trigger_time"],
+                "alert_level": row["alert_level"] or "LEVEL_0",
+            }
+
+            # Single-outcome incremental update (min_outcomes=1 for incremental)
+            # The adapter's internal decay + Bayesian update handles smoothing.
+            prev_weights = adapter.get_current_weights()
+            new_weights = adapter.update_weights([outcome_dict])
+
+            if new_weights != prev_weights:
+                logger.info(
+                    f"[Phase 3] Bayesian weights updated: {new_weights}"
+                )
+
+        except Exception as exc:
+            logger.warning(
+                f"[Phase 3] Bayesian weight update skipped: {exc}"
+            )
 
     # ── Persistence ────────────────────────────────────────────────────────────
 

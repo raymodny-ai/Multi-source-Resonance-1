@@ -24,14 +24,59 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Dimension weights (raw max = 8.0 total)
-WEIGHTS = {
+# Default dimension weights (raw max = 8.0 total)
+DEFAULT_WEIGHTS = {
     "gex": 2.5,
     "vix": 1.5,
     "crypto": 2.0,
     "darkpool": 2.0,
 }
-RAW_MAX = sum(WEIGHTS.values())  # 8.0
+
+# Backward-compatible alias
+WEIGHTS = DEFAULT_WEIGHTS
+
+RAW_MAX = sum(DEFAULT_WEIGHTS.values())  # 8.0
+
+# ── Dynamic weight management via BayesianWeightAdapter ──────────────────────
+_adapter_instance: Optional[object] = None  # Lazy-initialized BayesianWeightAdapter
+
+
+def _get_adapter():
+    """Lazily initialise and return the module-level BayesianWeightAdapter."""
+    global _adapter_instance
+    if _adapter_instance is None:
+        # Lazy import to avoid circular dependency (bayesian_weights imports scoring)
+        from backend.quant.bayesian_weights import BayesianWeightAdapter
+        _adapter_instance = BayesianWeightAdapter()
+        logger.info("BayesianWeightAdapter initialised")
+    return _adapter_instance
+
+
+def get_current_weights() -> dict:
+    """Return current dimension weights.
+
+    If the BayesianWeightAdapter has been updated with signal outcomes,
+    returns the dynamically adapted weights. Otherwise returns defaults.
+    """
+    try:
+        if _adapter_instance is not None:
+            stats = _adapter_instance.get_update_stats()
+            if stats["update_count"] > 0:
+                weights = _adapter_instance.get_current_weights()
+                # Sanity check: weights should sum to RAW_MAX
+                if abs(sum(weights.values()) - RAW_MAX) < 0.01:
+                    return weights
+    except Exception as exc:
+        logger.warning(f"Failed to get dynamic weights, using defaults: {exc}")
+    return dict(DEFAULT_WEIGHTS)
+
+
+def reset_weights() -> None:
+    """Reset dynamic weights back to defaults."""
+    global _adapter_instance
+    if _adapter_instance is not None:
+        _adapter_instance.reset()
+    logger.info("Scoring weights reset to defaults")
 
 # Level thresholds on normalized 0-100 scale
 LEVEL_THRESHOLDS = {
@@ -89,11 +134,14 @@ def calculate_score(
         crypto_score = max(0.0, min(100.0, crypto_score))
         darkpool_score = max(0.0, min(100.0, darkpool_score))
 
+        # Use dynamic weights (falls back to defaults if no adapter data)
+        weights = get_current_weights()
+
         # Calculate weighted contributions (each dimension contributes up to its weight)
-        gex_contrib = (gex_score / 100.0) * WEIGHTS["gex"]
-        vix_contrib = (vix_score / 100.0) * WEIGHTS["vix"]
-        crypto_contrib = (crypto_score / 100.0) * WEIGHTS["crypto"]
-        darkpool_contrib = (darkpool_score / 100.0) * WEIGHTS["darkpool"]
+        gex_contrib = (gex_score / 100.0) * weights["gex"]
+        vix_contrib = (vix_score / 100.0) * weights["vix"]
+        crypto_contrib = (crypto_score / 100.0) * weights["crypto"]
+        darkpool_contrib = (darkpool_score / 100.0) * weights["darkpool"]
 
         # Raw score (max = 8.0)
         raw_score = gex_contrib + vix_contrib + crypto_contrib + darkpool_contrib
@@ -150,7 +198,7 @@ def calculate_score(
                 "crypto": round(crypto_score, 2),
                 "darkpool": round(darkpool_score, 2),
             },
-            "dimension_weights": WEIGHTS,
+            "dimension_weights": weights,
             "signals": signals,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -218,6 +266,7 @@ def get_dimension_summary(scoring_result: dict) -> dict:
     level = scoring_result.get("level", "LEVEL_0")
     normalized = scoring_result.get("normalized_score", 0.0)
     dims = scoring_result.get("dimension_scores", {})
+    weights_used = scoring_result.get("dimension_weights", DEFAULT_WEIGHTS)
 
     level_descriptions = {
         "LEVEL_0": "No signal — market conditions normal",
@@ -231,10 +280,10 @@ def get_dimension_summary(scoring_result: dict) -> dict:
         "level_description": level_descriptions.get(level, "Unknown"),
         "normalized_score": normalized,
         "dimensions": {
-            "GEX (weight 2.5)": f"{dims.get('gex', 0):.1f}/100",
-            "VIX (weight 1.5)": f"{dims.get('vix', 0):.1f}/100",
-            "Crypto (weight 2.0)": f"{dims.get('crypto', 0):.1f}/100",
-            "Darkpool (weight 2.0)": f"{dims.get('darkpool', 0):.1f}/100",
+            f"GEX (weight {weights_used.get('gex', 2.5):.2f})": f"{dims.get('gex', 0):.1f}/100",
+            f"VIX (weight {weights_used.get('vix', 1.5):.2f})": f"{dims.get('vix', 0):.1f}/100",
+            f"Crypto (weight {weights_used.get('crypto', 2.0):.2f})": f"{dims.get('crypto', 0):.1f}/100",
+            f"Darkpool (weight {weights_used.get('darkpool', 2.0):.2f})": f"{dims.get('darkpool', 0):.1f}/100",
         },
         "signals": scoring_result.get("signals", []),
     }

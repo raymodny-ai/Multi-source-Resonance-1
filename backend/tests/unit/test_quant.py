@@ -15,6 +15,16 @@ from backend.quant import scoring
 from backend.quant.hawkes_model import HawkesAR1Model, analyze as hawkes_analyze
 
 
+@pytest.fixture(autouse=True)
+def _reset_bayesian_weights():
+    """Ensure each test starts with default weights (no Bayesian adaptation)."""
+    scoring.reset_weights()
+    # Also reset the module-level adapter so get_current_weights returns defaults
+    scoring._adapter_instance = None
+    yield
+    scoring._adapter_instance = None
+
+
 # ===========================================================================
 # GEX Analyzer
 # ===========================================================================
@@ -302,6 +312,33 @@ class TestScoring:
 
     def test_weights_sum_to_raw_max(self):
         assert sum(scoring.WEIGHTS.values()) == scoring.RAW_MAX
+
+    def test_default_weights_unchanged(self):
+        """DEFAULT_WEIGHTS should always match the original hardcoded values."""
+        assert scoring.DEFAULT_WEIGHTS == {
+            "gex": 2.5,
+            "vix": 1.5,
+            "crypto": 2.0,
+            "darkpool": 2.0,
+        }
+        assert scoring.WEIGHTS is scoring.DEFAULT_WEIGHTS
+
+    def test_get_current_weights_returns_defaults_initially(self):
+        """Before any Bayesian update, weights should equal DEFAULT_WEIGHTS."""
+        weights = scoring.get_current_weights()
+        assert weights == scoring.DEFAULT_WEIGHTS
+
+    def test_reset_weights_restores_defaults(self):
+        """After reset, get_current_weights should return DEFAULT_WEIGHTS."""
+        scoring.reset_weights()
+        weights = scoring.get_current_weights()
+        assert weights == scoring.DEFAULT_WEIGHTS
+
+    def test_calculate_score_with_default_weights(self):
+        """Score calculation should use default weights when no Bayesian update."""
+        result = scoring.calculate_score(100, 100, 100, 100)
+        assert result["normalized_score"] == 100.0
+        assert result["dimension_weights"] == scoring.DEFAULT_WEIGHTS
 
 
 # ===========================================================================

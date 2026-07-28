@@ -195,3 +195,49 @@ async def restore_defaults(request: Request):
 
     logger.info("Configuration restored to defaults")
     return {"ok": True, "message": "Configuration restored to defaults"}
+
+
+# ── Bayesian weight management ───────────────────────────────────────────────
+
+
+@router.get("/weights")
+async def get_weights():
+    """Return current dimension weights (default or Bayesian-adapted)."""
+    from backend.quant.scoring import get_current_weights, DEFAULT_WEIGHTS, RAW_MAX
+    from backend.quant.bayesian_weights import BayesianWeightAdapter
+
+    current = get_current_weights()
+    is_adapted = current != DEFAULT_WEIGHTS
+
+    # Gather adapter stats if available
+    try:
+        from backend.quant.scoring import _get_adapter
+        adapter = _get_adapter()
+        adapter_stats = adapter.get_update_stats()
+        posterior_summary = adapter.get_posterior_summary()
+    except Exception:
+        adapter_stats = None
+        posterior_summary = None
+
+    return {
+        "weights": current,
+        "default_weights": DEFAULT_WEIGHTS,
+        "raw_max": RAW_MAX,
+        "is_adapted": is_adapted,
+        "adapter_stats": adapter_stats,
+        "posterior_summary": posterior_summary,
+    }
+
+
+@router.post("/weights/reset")
+async def reset_weights():
+    """Reset dimension weights to defaults (requires JWT)."""
+    from backend.quant.scoring import reset_weights, DEFAULT_WEIGHTS
+
+    reset_weights()
+    logger.info("Weights reset to defaults via API")
+    return {
+        "ok": True,
+        "message": "Weights reset to defaults",
+        "weights": DEFAULT_WEIGHTS,
+    }
