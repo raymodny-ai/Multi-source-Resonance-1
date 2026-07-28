@@ -65,3 +65,24 @@ async def vix_history(
         """, (days,))
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+
+
+@router.get("/term-structure-history")
+async def vix_term_structure_history(
+    days: int = Query(365, ge=1, le=1825, description="Days of history (max ~5y)"),
+):
+    """VIX term structure daily history (FRED VIXCLS + VXVCLS, ~2 years).
+
+    Returns one row per trading day with VIX spot, 3M VIX proxy (VXVCLS),
+    term structure ratio/state, panic premium, and vol regime.
+    """
+    async with get_db() as db:
+        cursor = await db.execute("""
+            SELECT date, vix_spot, vx_3m_proxy, term_structure_ratio,
+                   term_structure_state, panic_premium, regime
+            FROM vix_term_structure
+            WHERE date >= date('now', '-' || ? || ' days')
+            ORDER BY date ASC
+        """, (days,))
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]

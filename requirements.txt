@@ -36,3 +36,7 @@ apscheduler>=3.10.0,<4.0.0
 numpy>=2.1.0,<3.0.0
 scipy>=1.14.0,<2.0.0
 pandas>=2.2.0,<3.0.0
+
+# Free options chain + local Greeks calculation (替代 CBOE DataShop API key)
+yfinance>=0.2.40,<2.0.0
+py_vollib>=1.0.1,<2.0.0

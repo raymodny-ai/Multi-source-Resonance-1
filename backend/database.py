@@ -189,6 +189,36 @@ CREATE TABLE IF NOT EXISTS vix_analysis (
     created_at            DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- VIX term structure daily history (date PK, from FRED VIXCLS + VXVCLS)
+CREATE TABLE IF NOT EXISTS vix_term_structure (
+    date                    DATE PRIMARY KEY,
+    vix_spot                REAL,
+    vx_3m_proxy             REAL,  -- VXVCLS (CBOE 3M VIX index) as long-end proxy
+    term_structure_ratio    REAL,  -- (vx_3m_proxy / vix_spot - 1) * 100, positive=contango
+    term_structure_state    TEXT,  -- contango | backwardation | flat
+    panic_premium           REAL,  -- vix_spot - vx_3m_proxy (long-term volatility premium)
+    regime                  TEXT,  -- low (<15) | normal (15-25) | elevated (25-35) | panic (>35)
+    updated_at              DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_vix_ts_date ON vix_term_structure(date DESC);
+
+-- Dark pool intraday snapshot history (no PK constraint — multi-row per day, per cycle)
+CREATE TABLE IF NOT EXISTS dark_pool_history (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    date                    DATE NOT NULL,
+    timestamp               TEXT NOT NULL,
+    dix_value               REAL,
+    gex_value               REAL,    -- SqueezeMetrics GEX column from CSV
+    spx_price               REAL,    -- SqueezeMetrics price column from CSV
+    chartexchange_short_ratio REAL,
+    source                  TEXT,    -- squeezemetrics | chart-exchange | mock
+    created_at              DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_darkpool_hist_date ON dark_pool_history(date DESC);
+CREATE INDEX IF NOT EXISTS idx_darkpool_hist_ts ON dark_pool_history(timestamp DESC);
+
 -- Dark pool / DIX metrics (18 columns)
 CREATE TABLE IF NOT EXISTS dark_pool_metrics (
     date                       DATE PRIMARY KEY,
@@ -210,6 +240,48 @@ CREATE TABLE IF NOT EXISTS dark_pool_metrics (
     created_at                 DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at                 DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Options chain + Greeks (computed via py_vollib Black-Scholes, fed by yfinance)
+-- Per-strike detail stored in options_greeks_strikes (1:N)
+CREATE TABLE IF NOT EXISTS options_greeks (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol                TEXT NOT NULL,
+    timestamp             TEXT NOT NULL,
+    spot_price            REAL,
+    expiry                TEXT,
+    days_to_expiry        INTEGER,
+    atm_strike            REAL,
+    atm_iv                REAL,
+    atm_delta_call        REAL,
+    atm_delta_put         REAL,
+    atm_gamma             REAL,
+    atm_vega              REAL,
+    atm_theta             REAL,
+    risk_free_rate        REAL,
+    calls_count           INTEGER,
+    puts_count            INTEGER,
+    source                TEXT DEFAULT 'yfinance',
+    created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(symbol, timestamp)
+);
+
+CREATE TABLE IF NOT EXISTS options_greeks_strikes (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id           INTEGER NOT NULL,
+    strike                REAL NOT NULL,
+    call_delta            REAL,
+    put_delta             REAL,
+    gamma                 REAL,
+    vega                  REAL,
+    theta                 REAL,
+    iv                    REAL,
+    call_oi               INTEGER,
+    put_oi                INTEGER,
+    FOREIGN KEY (snapshot_id) REFERENCES options_greeks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_options_greeks_symbol_ts
+    ON options_greeks (symbol, timestamp DESC);
 
 -- Crypto derivatives (10 columns)
 CREATE TABLE IF NOT EXISTS crypto_derivatives (
@@ -360,6 +432,13 @@ SELECT
 FROM vix_analysis
 UNION ALL
 SELECT
+    'vix_term_structure' AS source,
+    MAX(date) AS last_data_ts,
+    COUNT(*) AS total_rows,
+    CAST((julianday('now') - julianday(MAX(date))) * 24 * 60 AS REAL) AS age_minutes
+FROM vix_term_structure
+UNION ALL
+SELECT
     'dark_pool_metrics' AS source,
     MAX(date) AS last_data_ts,
     COUNT(*) AS total_rows,
@@ -367,11 +446,25 @@ SELECT
 FROM dark_pool_metrics
 UNION ALL
 SELECT
+    'dark_pool_history' AS source,
+    MAX(timestamp) AS last_data_ts,
+    COUNT(*) AS total_rows,
+    CAST((julianday('now') - julianday(MAX(timestamp))) * 24 * 60 AS REAL) AS age_minutes
+FROM dark_pool_history
+UNION ALL
+SELECT
     'crypto_derivatives' AS source,
     MAX(timestamp) AS last_data_ts,
     COUNT(*) AS total_rows,
     CAST((julianday('now') - julianday(MAX(timestamp))) * 24 * 60 AS REAL) AS age_minutes
-FROM crypto_derivatives;
+FROM crypto_derivatives
+UNION ALL
+SELECT
+    'options_greeks' AS source,
+    MAX(timestamp) AS last_data_ts,
+    COUNT(*) AS total_rows,
+    CAST((julianday('now') - julianday(MAX(timestamp))) * 24 * 60 AS REAL) AS age_minutes
+FROM options_greeks;
 
 -- View 4: Daily dark pool aggregation
 CREATE VIEW IF NOT EXISTS v_daily_darkpool AS

@@ -6,7 +6,7 @@
         <div class="crypto-current" v-if="latest">
           <div class="metric-row">
             <span class="metric-label">BTC Funding Rate</span>
-            <span class="metric-value" :class="latest.btc_funding_rate < 0 ? 'text-red' : 'text-green'">{{ (latest.btc_funding_rate * 100).toFixed(4) }}%</span>
+            <span class="metric-value" :class="latest.btc_funding_rate != null && latest.btc_funding_rate < 0 ? 'text-red' : 'text-green'">{{ latest.btc_funding_rate != null ? (latest.btc_funding_rate * 100).toFixed(4) + '%' : '—' }}</span>
           </div>
           <div class="metric-row"><span class="metric-label">BTC OI</span><span class="metric-value">{{ latest.btc_oi?.toFixed(0) ?? '—' }}</span></div>
           <div class="metric-row"><span class="metric-label">OI Change 1h</span><span class="metric-value" :class="(latest.oi_change_1h || 0) < 0 ? 'text-red' : 'text-green'">{{ ((latest.oi_change_1h || 0) * 100).toFixed(2) }}%</span></div>

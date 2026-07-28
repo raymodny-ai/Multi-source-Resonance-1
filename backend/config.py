@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # ── Data Collection ───────────────────────────────────────────────────────
-    fetch_interval_seconds: int = 60
+    fetch_interval_seconds: int = 900  # 15min default — 21 fetcher + yfinance rate limit
     fetch_timeout_seconds: int = 30
     max_workers: int = 8
 

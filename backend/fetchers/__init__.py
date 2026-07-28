@@ -30,6 +30,7 @@ from backend.fetchers.stockgrid_fetcher import StockGridFetcher
 from backend.fetchers.coinglass_fetcher import CoinglassFetcher
 from backend.fetchers.tradier_fetcher import TradierFetcher
 from backend.fetchers.dbmf_fetcher import DBMFFetcher
+from backend.fetchers.options_greeks_fetcher import OptionsChainGreeksFetcher
 
 __all__ = [
     "BaseFetcher",
@@ -57,4 +58,5 @@ __all__ = [
     "CoinglassFetcher",
     "TradierFetcher",
     "DBMFFetcher",
+    "OptionsChainGreeksFetcher",
 ]

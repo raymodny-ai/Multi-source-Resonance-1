@@ -27,6 +27,16 @@ export interface DarkpoolFlow {
   momentum_reversal_signal: string | null
 }
 
+export interface DarkpoolHistoryIntradayRow {
+  date: string
+  timestamp: string
+  dix_value: number | null
+  gex_value: number | null
+  spx_price: number | null
+  chartexchange_short_ratio: number | null
+  source: string | null
+}
+
 export function getDarkpoolLatest() {
   return client.get<DarkpoolData>('/darkpool/latest')
 }
@@ -37,4 +47,11 @@ export function getDarkpoolFlow(days = 30) {
 
 export function getDarkpoolHistory(days = 90) {
   return client.get<DarkpoolData[]>('/darkpool/history', { params: { days } })
+}
+
+export function getDarkpoolHistoryIntraday(days = 90) {
+  return client.get<DarkpoolHistoryIntradayRow[]>(
+    '/darkpool/history-intraday',
+    { params: { days } },
+  )
 }

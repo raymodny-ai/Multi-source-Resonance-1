@@ -19,11 +19,11 @@
       <div class="glass-card levels-card">
         <h3 class="section-title">关键价位</h3>
         <div class="levels-grid" v-if="levels">
-          <div class="level-item"><span class="level-label">Call Wall</span><span class="level-val text-green">{{ levels.call_wall }}</span></div>
-          <div class="level-item"><span class="level-label">Put Wall</span><span class="level-val text-red">{{ levels.put_wall }}</span></div>
-          <div class="level-item"><span class="level-label">Zero Gamma</span><span class="level-val text-amber">{{ levels.zero_gamma_level }}</span></div>
-          <div class="level-item"><span class="level-label">Spot</span><span class="level-val">{{ levels.spot_price }}</span></div>
-          <div class="level-item"><span class="level-label">Net GEX</span><span class="level-val" :class="levels.net_gex > 0 ? 'text-green' : 'text-red'">{{ formatGEX(levels.net_gex) }}</span></div>
+          <div class="level-item"><span class="level-label">Call Wall</span><span class="level-val text-green">{{ levels.call_wall ?? '—' }}</span></div>
+          <div class="level-item"><span class="level-label">Put Wall</span><span class="level-val text-red">{{ levels.put_wall ?? '—' }}</span></div>
+          <div class="level-item"><span class="level-label">Zero Gamma</span><span class="level-val text-amber">{{ levels.zero_gamma_level ?? '—' }}</span></div>
+          <div class="level-item"><span class="level-label">Spot</span><span class="level-val">{{ levels.spot_price ?? '—' }}</span></div>
+          <div class="level-item"><span class="level-label">Net GEX</span><span class="level-val" :class="levels.net_gex != null && levels.net_gex > 0 ? 'text-green' : 'text-red'">{{ formatGEX(levels.net_gex) }}</span></div>
         </div>
       </div>
 
@@ -57,7 +57,8 @@ const levels = ref<any>(null)
 const longHistory = ref<any[]>([])
 const strikes = ref<GEXStrike[]>([])
 
-function formatGEX(val: number): string {
+function formatGEX(val: number | null | undefined): string {
+  if (val === null || val === undefined || Number.isNaN(val)) return '—'
   const abs = Math.abs(val)
   if (abs >= 1e9) return `${(val / 1e9).toFixed(2)}B`
   if (abs >= 1e6) return `${(val / 1e6).toFixed(2)}M`

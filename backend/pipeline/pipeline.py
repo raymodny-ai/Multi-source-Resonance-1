@@ -86,11 +86,11 @@ class Pipeline:
         await self.event_bus.publish(EventType.SYSTEM_START, {
             "component": "pipeline",
             "fetchers": len(self.fetchers),
-            "interval_sec": self.config.fetch_interval_second,
+            "interval_sec": self.config.fetch_interval_seconds,
         })
         logger.info(
             f"Pipeline started — {len(self.fetchers)} fetcher(s), "
-            f"interval={self.config.fetch_interval_second}s"
+            f"interval={self.config.fetch_interval_seconds}s"
         )
 
         try:
@@ -117,7 +117,7 @@ class Pipeline:
 
                 # Wait for next interval
                 if self._running:
-                    await asyncio.sleep(self.config.fetch_interval_second)
+                    await asyncio.sleep(self.config.fetch_interval_seconds)
 
         except asyncio.CancelledError:
             logger.info("Pipeline loop cancelled")

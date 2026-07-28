@@ -30,6 +30,7 @@ from backend.api.routes.system import router as system_router
 from backend.api.routes.config import router as config_router
 from backend.api.routes.metrics import router as metrics_router
 from backend.api.routes.analysis import router as analysis_router
+from backend.api.routes.options_greeks import router as options_greeks_router
 from backend.api.websocket import router as ws_router, setup_event_bus_bridge
 from backend.config import settings
 from backend.database import close_db, init_db
@@ -39,7 +40,7 @@ from backend.fetchers import (
     CryptoFetcher, DarkpoolFetcher, FlowFetcher, LLMFetcher, MacroFetcher,
     PutCallFetcher, SectorFetcher, SentimentFetcher, VIXTermFetcher,
     SqueezeMetricsFetcher, FinraFetcher, CCDataFetcher, StockGridFetcher,
-    CoinglassFetcher, TradierFetcher, DBMFFetcher,
+    CoinglassFetcher, TradierFetcher, DBMFFetcher, OptionsChainGreeksFetcher,
 )
 from backend.models.common import ErrorResponse, HealthCheck
 from backend.pipeline import Pipeline
@@ -96,7 +97,7 @@ async def lifespan(app: FastAPI):
         SectorFetcher(settings), SentimentFetcher(settings), VIXTermFetcher(settings),
         SqueezeMetricsFetcher(settings), FinraFetcher(settings), CCDataFetcher(settings),
         StockGridFetcher(settings), CoinglassFetcher(settings), TradierFetcher(settings),
-        DBMFFetcher(settings),
+        DBMFFetcher(settings), OptionsChainGreeksFetcher(settings),
     ]
     pipeline = Pipeline(config=settings, event_bus=event_bus, fetchers=fetchers)
     app.state.pipeline = pipeline
@@ -104,6 +105,12 @@ async def lifespan(app: FastAPI):
 
     # Start scheduled maintenance jobs
     start_scheduler()
+
+    # Start periodic data collection pipeline (background, fetch_interval_seconds)
+    # 21 fetcher default 60s 太频繁 — yfinance 会限速, 改 900s (15min) 合适
+    if not pipeline.is_running:
+        pipeline.start_background()
+        logger.info("Periodic pipeline started (background task)")
 
     # Setup WebSocket <-> EventBus bridge
     await setup_event_bus_bridge(event_bus)
@@ -232,6 +239,9 @@ app.include_router(metrics_router)
 
 # Analysis results routes
 app.include_router(analysis_router)
+
+# Options chain + Greeks (yfinance + py_vollib Black-Scholes local calc)
+app.include_router(options_greeks_router)
 
 # WebSocket route
 app.include_router(ws_router)

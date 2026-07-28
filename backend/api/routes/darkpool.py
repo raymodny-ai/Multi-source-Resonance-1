@@ -57,3 +57,24 @@ async def darkpool_history(
         """, (days,))
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+
+
+@router.get("/history-intraday")
+async def darkpool_history_intraday(
+    days: int = Query(90, ge=1, le=365, description="Days of intraday snapshot history"),
+):
+    """Dark pool intraday snapshot history (SqueezeMetrics DIX daily + captured-at-timestamp).
+
+    Multi-row per day allowed — each fetcher cycle inserts a new row.
+    For SqueezeMetrics sourced from CSV, this represents daily close values.
+    """
+    async with get_db() as db:
+        cursor = await db.execute("""
+            SELECT date, timestamp, dix_value, gex_value, spx_price,
+                   chartexchange_short_ratio, source
+            FROM dark_pool_history
+            WHERE date >= date('now', '-' || ? || ' days')
+            ORDER BY date ASC, timestamp ASC
+        """, (days,))
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]

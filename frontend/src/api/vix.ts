@@ -10,6 +10,16 @@ export interface VIXData {
   panic_premium: number
 }
 
+export interface VIXTermStructureHistoryRow {
+  date: string
+  vix_spot: number | null
+  vx_3m_proxy: number | null
+  term_structure_ratio: number | null
+  term_structure_state: string | null
+  panic_premium: number | null
+  regime: string | null
+}
+
 export function getVIXLatest() {
   return client.get<VIXData>('/vix/latest')
 }
@@ -20,4 +30,11 @@ export function getVIXTermStructure() {
 
 export function getVIXHistory(days = 90) {
   return client.get<VIXData[]>('/vix/history', { params: { days } })
+}
+
+export function getVIXTermStructureHistory(days = 365) {
+  return client.get<VIXTermStructureHistoryRow[]>(
+    '/vix/term-structure-history',
+    { params: { days } },
+  )
 }

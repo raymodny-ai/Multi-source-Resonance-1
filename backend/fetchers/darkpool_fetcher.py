@@ -24,7 +24,7 @@ class DarkpoolFetcher(BaseFetcher):
     def _mock_mode_key(self) -> str:
         return "darkpool"
 
-    SQUEEZEMETRICS_CSV_URL = "https://squeezemetrics.com/monitor/dix"
+    SQUEEZEMETRICS_CSV_URL = "https://squeezemetrics.com/monitor/static/DIX.csv"
 
     async def fetch(self) -> dict:
         """Fetch dark pool data with fallback chain."""
@@ -39,7 +39,12 @@ class DarkpoolFetcher(BaseFetcher):
         return self._generate_mock_data()
 
     async def _fetch_squeezemetrics(self) -> dict[str, Any]:
-        """Fetch from SqueezeMetrics public DIX CSV."""
+        """Fetch from SqueezeMetrics public DIX CSV.
+
+        Returns:
+            dict with today's metrics (for dark_pool_metrics daily PK table)
+            + 'history' list (last 90 days for dark_pool_history table)
+        """
         client = await self._get_client()
         resp = await client.get(self.SQUEEZEMETRICS_CSV_URL)
         resp.raise_for_status()
@@ -49,20 +54,50 @@ class DarkpoolFetcher(BaseFetcher):
         if len(lines) < 2:
             raise ValueError("SqueezeMetrics CSV has insufficient data")
 
-        # Header: date, DIX, GEX, ...
-        header = lines[0].split(",")
-        latest = lines[1].split(",")
+        # Header: date,price,dix,gex
+        # Rows are chronological ASC (2011-05-02 first, today last)
+        latest = lines[-1].split(",")
+        prev = lines[-2].split(",") if len(lines) > 1 else latest
 
-        # Extract DIX value (column index 1 typically)
-        dix_value = float(latest[1]) if len(latest) > 1 else None
+        # Extract DIX value (column index 2: 0=date, 1=price, 2=dix, 3=gex)
+        dix_value = float(latest[2]) if len(latest) > 2 else None
+        gex_value = float(latest[3]) if len(latest) > 3 else None
+        spx_price = float(latest[1]) if len(latest) > 1 else None
+        prev_dix = float(prev[2]) if len(prev) > 2 and len(lines) > 1 else None
 
-        # Compute signals
-        dix_signal = dix_value is not None and dix_value > 50.0
+        # Compute signals (DIX ~0.40 range; bullish when high, bearish when low)
+        dix_signal = dix_value is not None and dix_value > 0.45
         short_ratio = random.uniform(1.5, 4.0) if dix_value else None
+
+        # Build history (last 90 days for dark_pool_history table)
+        history = []
+        history_lines = lines[-90:] if len(lines) >= 90 else lines[1:]
+        for line in history_lines:
+            parts = line.split(",")
+            if len(parts) < 3:
+                continue
+            try:
+                d = parts[0]
+                p = float(parts[1]) if parts[1] else None
+                dix = float(parts[2]) if parts[2] else None
+                gex = float(parts[3]) if len(parts) > 3 and parts[3] else None
+            except (ValueError, IndexError):
+                continue
+            history.append({
+                "date": d,
+                "timestamp": f"{d}T16:00:00+00:00",  # Market close proxy
+                "dix_value": dix * 100 if dix is not None else None,  # CSV is 0-1, scale to % for consistency
+                "gex_value": gex,
+                "spx_price": p,
+                "chartexchange_short_ratio": None,  # not in CSV
+                "source": "squeezemetrics",
+            })
 
         return {
             "date": date.today().isoformat(),
-            "dix_value": dix_value,
+            "dix_value": dix_value * 100 if dix_value is not None else None,  # scale to %
+            "gex_value": gex_value,
+            "spx_price": spx_price,
             "chartexchange_short_ratio": short_ratio,
             "stockgrid_20d_slope": random.uniform(-0.5, 0.5),
             "stockgrid_60d_slope": random.uniform(-0.3, 0.3),
@@ -77,6 +112,7 @@ class DarkpoolFetcher(BaseFetcher):
             "ema_slow_20": random.uniform(-300, 300),
             "zero_cross_signal": "bullish_cross" if random.random() < 0.3 else None,
             "momentum_reversal_signal": "reversal_up" if random.random() < 0.2 else None,
+            "history": history,
         }
 
     def _generate_mock_data(self) -> dict[str, Any]:

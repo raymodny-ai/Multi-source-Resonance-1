@@ -69,10 +69,12 @@ class DataWriter:
             return await self._write_gex_snapshot(conn, data, now)
         elif source_lower in ("vix", "cboe"):
             return await self._write_vix_analysis(conn, data, now)
-        elif source_lower in ("darkpool", "put_call", "sector"):
+        elif source_lower in ("darkpool", "dark_pool_metrics"):
             return await self._write_dark_pool_metrics(conn, data, now)
-        elif source_lower == "crypto":
+        elif source_lower in ("crypto", "crypto_derivatives"):
             return await self._write_crypto_derivatives(conn, data, now)
+        elif source_lower in ("options_greeks", "options_chain"):
+            return await self._write_options_greeks(conn, data, now)
         else:
             # Generic: write to gateway_snapshots as audit trail
             return await self._write_gateway_snapshot(
@@ -82,70 +84,90 @@ class DataWriter:
     # ── GEX snapshot writer ────────────────────────────────────────────────────
 
     async def _write_gex_snapshot(self, conn, data: dict, now: str) -> int:
-        """Insert a GEX snapshot and associated strikes (batch)."""
+        """Insert GEX snapshot(s) and associated strikes (batch).
+
+        Supports two shapes (gexmetrix_fetcher returns the multi-symbol form):
+        1. Multi-symbol: `{"snapshots": [{symbol, net_gex, ...}, ...], "strikes": [...]}`
+        2. Single-snapshot: `{symbol, net_gex, ...}` (legacy single-source fallback)
+        """
         rows = 0
         ts = data.get("_meta", {}).get("fetched_at", now)
 
-        # Insert snapshot summary
-        await conn.execute(
-            """INSERT INTO gex_snapshots
-               (symbol, timestamp, filename, net_gex, call_gex, put_gex,
-                zero_gamma_level, call_wall, put_wall, spot_price,
-                total_gamma, file_size, quality_score, data_lag_seconds,
-                oi_coverage_pct)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                data.get("symbol", "SPX"),
-                ts,
-                data.get("filename", "unknown"),
-                data.get("net_gex"),
-                data.get("call_gex"),
-                data.get("put_gex"),
-                data.get("zero_gamma_level"),
-                data.get("call_wall"),
-                data.get("put_wall"),
-                data.get("spot_price"),
-                data.get("total_gamma"),
-                data.get("file_size"),
-                data.get("quality_score"),
-                data.get("data_lag_seconds"),
-                data.get("oi_coverage_pct"),
-            ),
-        )
-        rows += 1
+        # Normalize to list of snapshots
+        snapshots = data.get("snapshots")
+        if not snapshots:
+            # Fall back to single-snapshot shape
+            snapshots = [data]
 
-        # Batch insert strikes if present
-        strikes = data.get("strikes", [])
+        # Batch insert per-symbol strikes keyed by (snapshot_id, symbol)
+        all_strikes_by_symbol: dict[str, list] = {}
+        strikes = data.get("strikes")
         if strikes:
-            snapshot_id = conn.total_changes  # approximate; use last_insert_rowid
+            for s in strikes:
+                sym = s.get("symbol", "UNKNOWN")
+                all_strikes_by_symbol.setdefault(sym, []).append(s)
+
+        for snap in snapshots:
+            symbol = snap.get("symbol", "SPX")
+            # Insert snapshot summary
+            await conn.execute(
+                """INSERT INTO gex_snapshots
+                   (symbol, timestamp, filename, net_gex, call_gex, put_gex,
+                    zero_gamma_level, call_wall, put_wall, spot_price,
+                    total_gamma, file_size, quality_score, data_lag_seconds,
+                    oi_coverage_pct)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    symbol,
+                    ts,
+                    snap.get("filename", "unknown"),
+                    snap.get("net_gex"),
+                    snap.get("call_gex"),
+                    snap.get("put_gex"),
+                    snap.get("zero_gamma_level"),
+                    snap.get("call_wall"),
+                    snap.get("put_wall"),
+                    snap.get("spot_price"),
+                    snap.get("total_gamma"),
+                    snap.get("file_size"),
+                    snap.get("quality_score"),
+                    snap.get("data_lag_seconds"),
+                    snap.get("oi_coverage_pct"),
+                ),
+            )
+            rows += 1
+
+            # Insert strikes for this symbol only
             cursor = await conn.execute("SELECT last_insert_rowid()")
             row = await cursor.fetchone()
             snapshot_id = row[0] if row else 0
 
-            strike_rows = [
-                (
-                    snapshot_id,
-                    data.get("symbol", "SPX"),
-                    ts,
-                    s.get("strike", 0),
-                    s.get("call_gex", 0),
-                    s.get("put_gex", 0),
-                    s.get("call_oi", 0),
-                    s.get("put_oi", 0),
-                    s.get("call_vol", 0),
-                    s.get("put_vol", 0),
-                    s.get("net_gex", 0),
+            sym_strikes = all_strikes_by_symbol.get(symbol, [])
+            if sym_strikes:
+                strike_rows = [
+                    (
+                        snapshot_id,
+                        symbol,
+                        ts,
+                        s.get("strike", 0),
+                        s.get("call_gex", 0),
+                        s.get("put_gex", 0),
+                        s.get("call_oi", 0),
+                        s.get("put_oi", 0),
+                        s.get("call_vol", 0),
+                        s.get("put_vol", 0),
+                        s.get("net_gex", 0),
+                    )
+                    for s in sym_strikes
+                ]
+                await conn.executemany(
+                    """INSERT INTO gex_strikes
+                       (snapshot_id, symbol, timestamp, strike,
+                        call_gex, put_gex, call_oi, put_oi, call_vol, put_vol, net_gex)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    strike_rows,
                 )
-                for s in strikes
-            ]
-            await conn.executemany(
-                """INSERT INTO gex_strikes
-                   (snapshot_id, symbol, timestamp, strike,
-                    call_gex, put_gex, call_oi, put_oi, call_vol, put_vol, net_gex)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                strike_rows,
-            )
-            rows += len(strike_rows)
+                rows += len(strike_rows)
 
         return rows
 
@@ -169,6 +191,26 @@ class DataWriter:
                 data.get("panic_premium"),
             ),
         )
+
+        # Also write daily term structure history (date PK) if 'date' provided
+        # FRED VIXCLS+VXVCLS source populates this table
+        if data.get("date"):
+            await conn.execute(
+                """INSERT OR REPLACE INTO vix_term_structure
+                   (date, vix_spot, vx_3m_proxy, term_structure_ratio,
+                    term_structure_state, panic_premium, regime, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+                (
+                    data["date"],
+                    data.get("vix_spot"),
+                    data.get("vx_3m_proxy"),
+                    data.get("term_structure_ratio"),
+                    data.get("term_structure_state"),
+                    data.get("panic_premium"),
+                    data.get("regime"),
+                ),
+            )
+            return 2
         return 1
 
     # ── Dark pool writer ───────────────────────────────────────────────────────
@@ -205,6 +247,22 @@ class DataWriter:
                 now,
             ),
         )
+
+        # Also write intraday history (no PK — multi-row per day)
+        # If 'history' list provided (from SqueezeMetrics CSV last N days), batch insert
+        history = data.get("history")
+        if history and isinstance(history, list):
+            await conn.executemany(
+                """INSERT INTO dark_pool_history
+                   (date, timestamp, dix_value, gex_value, spx_price,
+                    chartexchange_short_ratio, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                [(h.get("date"), h.get("timestamp"), h.get("dix_value"),
+                  h.get("gex_value"), h.get("spx_price"),
+                  h.get("chartexchange_short_ratio"), h.get("source", "squeezemetrics"))
+                 for h in history],
+            )
+            return 1 + len(history)
         return 1
 
     # ── Crypto derivatives writer ──────────────────────────────────────────────
@@ -301,6 +359,110 @@ class DataWriter:
                 layer1_output=layer1_output,
                 layer2_output=layer2_output,
             )
+
+    async def _write_options_greeks(self, conn, data: dict, now: str) -> int:
+        """Insert options_greeks snapshot per symbol + per-strike detail rows.
+
+        data format (from OptionsChainGreeksFetcher):
+            {
+              "fetch_timestamp": ISO,
+              "symbols": {
+                "SPY": {
+                  "spot": 740.86,
+                  "expiry": "2026-08-28",
+                  "days_to_expiry": 30,
+                  "calls_count": 125,
+                  "puts_count": 132,
+                  "atm_iv": 0.18,
+                  "atm_strike": 740.0,
+                  "atm_delta_call": 0.5452,
+                  "atm_delta_put": -0.4548,
+                  "atm_gamma": 0.0093,
+                  "atm_vega": 0.84,
+                  "atm_theta": -0.33,
+                  "risk_free_rate": 0.045,
+                  "strikes": [
+                    {"strike": 530.0, "call_delta": 0.99, "put_delta": -0.01,
+                     "gamma": 0.0001, "vega": 0.05, "theta": -0.05,
+                     "iv": 0.67, "call_oi": 1, "put_oi": 0},
+                    ...
+                  ]
+                },
+                ...
+              }
+            }
+        """
+        symbols = data.get("symbols", {})
+        if not symbols:
+            return 0
+        written = 0
+        for symbol, payload in symbols.items():
+            try:
+                cursor = await conn.execute(
+                    """
+                    INSERT OR REPLACE INTO options_greeks (
+                        symbol, timestamp, spot_price, expiry, days_to_expiry,
+                        atm_strike, atm_iv, atm_delta_call, atm_delta_put,
+                        atm_gamma, atm_vega, atm_theta, risk_free_rate,
+                        calls_count, puts_count, source
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        symbol,
+                        data.get("fetch_timestamp", now),
+                        payload.get("spot"),
+                        payload.get("expiry"),
+                        payload.get("days_to_expiry"),
+                        payload.get("atm_strike"),
+                        payload.get("atm_iv"),
+                        payload.get("atm_delta_call"),
+                        payload.get("atm_delta_put"),
+                        payload.get("atm_gamma"),
+                        payload.get("atm_vega"),
+                        payload.get("atm_theta"),
+                        payload.get("risk_free_rate"),
+                        payload.get("calls_count"),
+                        payload.get("puts_count"),
+                        "yfinance",
+                    ),
+                )
+                snap_id = cursor.lastrowid
+
+                # Wipe old strikes for this snapshot, insert fresh
+                await conn.execute(
+                    "DELETE FROM options_greeks_strikes WHERE snapshot_id = ?",
+                    (snap_id,),
+                )
+                strikes = payload.get("strikes", [])
+                if strikes:
+                    await conn.executemany(
+                        """
+                        INSERT INTO options_greeks_strikes (
+                            snapshot_id, strike, call_delta, put_delta,
+                            gamma, vega, theta, iv, call_oi, put_oi
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            (
+                                snap_id,
+                                s["strike"],
+                                s.get("call_delta"),
+                                s.get("put_delta"),
+                                s.get("gamma"),
+                                s.get("vega"),
+                                s.get("theta"),
+                                s.get("iv"),
+                                s.get("call_oi", 0),
+                                s.get("put_oi", 0),
+                            )
+                            for s in strikes
+                        ],
+                    )
+                written += 1
+            except Exception as exc:
+                logger.warning(f"[options_greeks] Failed to write {symbol}: {exc}")
+        await conn.commit()
+        return written
 
     async def _write_gateway_snapshot(
         self,

@@ -106,8 +106,11 @@ def row_to_gex_history(r: list[str]) -> tuple | None:
     put_wall = round(price * PUT_WALL_RATIO, 2)
     flip_lower = round(price * FLIP_ZONE_LOWER_RATIO, 2)
     flip_upper = round(price * FLIP_ZONE_UPPER_RATIO, 2)
+    # net_gex mirrors gex_local for SqueezeMetrics (single aggregate per day, no calls/puts split)
+    net_gex = gex_local
+    spot_price = round(price, 2)
 
-    return (timestamp, gex_local, gex_calibrated, alpha, put_wall, flip_lower, flip_upper)
+    return (timestamp, gex_local, gex_calibrated, alpha, put_wall, flip_lower, flip_upper, net_gex, spot_price)
 
 
 def upsert_gex_history(db_path: Path, rows: list[tuple]) -> tuple[int, int]:
@@ -121,8 +124,9 @@ def upsert_gex_history(db_path: Path, rows: list[tuple]) -> tuple[int, int]:
         cur.executemany(
             """INSERT OR REPLACE INTO gex_history
                (timestamp, gex_local, gex_calibrated, alpha_factor,
-                put_wall_level, flip_zone_lower, flip_zone_upper, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+                put_wall_level, flip_zone_lower, flip_zone_upper,
+                net_gex, spot_price, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
             rows,
         )
         inserted = cur.rowcount
