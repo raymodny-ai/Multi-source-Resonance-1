@@ -1,15 +1,15 @@
 # 多源共振监控系统 — Multi-source Resonance
 
 [![Python](https://img.shields.io/badge/Python-3.12-blue)](https://python.org)
-[![React](https://img.shields.io/badge/React-18.3-61dafb)](https://react.dev)
+[![Vue](https://img.shields.io/badge/Vue-3-42b883)](https://vuejs.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110-green)](https://fastapi.tiangolo.com)
 [![Vite](https://img.shields.io/badge/Vite-8.0-646cff)](https://vitejs.dev)
 [![ECharts](https://img.shields.io/badge/ECharts-6.1-e43961)](https://echarts.apache.org)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57)](https://sqlite.org/wal.html)
-[![TanStack Query](https://img.shields.io/badge/TanStack_Query-5-ff4154)](https://tanstack.com/query)
+[![Pinia](https://img.shields.io/badge/Pinia-2-ffd83d)](https://pinia.vuejs.org)
 [![Status](https://img.shields.io/badge/v3.1-Latest-success)](#)
 
-> 基于 **三层解耦架构 V2.0** 的多维度金融监控系统。实时追踪美股暗盘资金、做市商 Gamma 敞口、VIX 期限结构、加密杠杆清洗及跨资产共振，通过 **四维度 Regime Transition 评分** 自动识别"流动性清算衰竭"级抄底信号，多渠道推送告警。Web UI 基于 **React + Vite + ECharts + TanStack Query** 构建，后端采用 **FastAPI + asyncio EventBus + WebSocket**。V3.1 新增 **历史回放 (Time-Travel)** 功能。
+> 基于 **三层解耦架构 V2.0** 的多维度金融监控系统。实时追踪美股暗盘资金、做市商 Gamma 敞口、VIX 期限结构、加密杠杆清洗及跨资产共振，通过 **四维度 Regime Transition 评分** 自动识别"流动性清算衰竭"级抄底信号，多渠道推送告警。Web UI 基于 **Vue 3 + TypeScript + ECharts + Pinia** 构建，后端采用 **FastAPI + asyncio EventBus + WebSocket**。V3.1 新增 **历史回放 (Time-Travel)** 功能。
 
 ---
 
@@ -45,7 +45,7 @@
 
 | 能力 | 描述 |
 |------|------|
-| **8 个数据维度** | GEXMetrix / SqueezeMetrics / FINRA / yfinance / VIX / 加密衍生品 / AXLFI 暗盘 / DBMF 均线 |
+| **21 个数据源** | GEXMetrix / AXLFI / VIX / yfinance / CBOE / Crypto / Darkpool / Flow / Sentiment / LLM / Put-Call / VIX Term / Sector / Macro / SqueezeMetrics / FINRA / CCData / StockGrid / Coinglass / Tradier / DBMF，全部支持 mock 模式 |
 | **三层解耦 V2.0** | Layer1 纯数学计算 → Layer2 JSON 网关 → Layer3 LLM 推理(可独立替换) |
 | **四维共振评分** | GEX + VIX + Crypto + Darkpool，满 5.0，LEVEL_3 阈值 3.5 |
 | **Hawkes AR(1)** | OLS 自回归替代 corrcoef，精确自激分支比测算 |
@@ -56,20 +56,70 @@
 | **降级容错** | Hyperliquid → CCData、yfinance → FINRA 双向降级 |
 | **数据校验防线** | Pandera + Greeks 边界 + Put-Call Parity + 套利 + Isolation Forest |
 | **BS 向量化引擎** | py-vollib-vectorized 批量 Greeks |
-| **多渠道告警** | Email / Telegram / Discord 并发推送 |
+| **多渠道告警** | Email / Webhook / Telegram 并发推送 |
 | **LLM 推理** | GPT-4o / Claude 自动生成报告 |
 | **回测引擎** | 历史信号回放、Sharpe / MaxDD / WinRate |
-| **完整 Web UI** | React + Vite + ECharts 6 + TanStack Query 仪表盘 |
+| **完整 Web UI** | Vue 3 + TypeScript + ECharts 6 + Pinia 仪表盘 |
 | **V3.0 玻璃拟态** | 设计令牌 + 双主题 + GlassCard + LiveTape |
 | **V3.1 历史回放** | 快照时间线 + TimelineReplay + SnapshotGallery + 0.5x-4x 倍速 |
 
 ### 1.3 v3.1 当前状态(2026-07-28)
 
-- **后端**: FastAPI 监听 `0.0.0.0:8524`，48+ 个 REST 路由 + WebSocket
+- **后端**: FastAPI 监听 `0.0.0.0:8524`，63+ 个 REST 路由 + WebSocket
 - **数据库**: SQLite (WAL)，11 张表，主要数据表行数: `gex_strikes` 3332 / `dark_pool_metrics` 253 / `gex_history` 103 / `gex_snapshots` 90+ / `vix_analysis` 7
-- **前端**: Vite 8.0 构建，ECharts 6.1 图表，18 个组件，15 个 API 模块
-- **采集**: 每日美东 20:00 批量 + 手动触发 (`POST /api/system/collect-manual`)，8 个数据维度全健康
+- **前端**: Vue 3 + TypeScript（48 个文件），Vite 8.0 构建，ECharts 6.1 图表，9 页面 / 18 组件 / 13 API 模块 / 4 Pinia Stores
+- **采集**: 21 个数据源 fetcher，全部支持 mock 模式（API key 缺失时自动降级）；每日美东 20:00 批量 + 手动触发 (`POST /api/system/collect-manual`)
 - **V3.1**: 快照自动记录 (5 分钟节流)，TimelineReplay 回放控制，SnapshotGallery 快照画廊
+
+### 1.4 v3.1 已实现功能清单
+
+#### 核心架构
+- 三层解耦架构（采集层 → 逻辑层 → 展示层）
+- EventBus 异步事件总线（通配符订阅、错误隔离）
+- Pipeline V2.0 三阶段流水线（分层并发 Tier 1/2/3）
+
+#### 数据采集
+- 21 个数据源 fetcher（GEXMetrix, AXLFI, VIX, yfinance, CBOE, Crypto, Darkpool, Flow, Sentiment, LLM, Put/Call, VIX Term, Sector, Macro, SqueezeMetrics, FINRA, CCData, StockGrid, Coinglass, Tradier, DBMF）
+- 全部支持 mock 模式（API key 缺失时自动降级）
+
+#### 量化分析
+- 13 个量化分析器
+- 四维共振评分引擎（归一化 0-100）
+- Hawkes AR(1) 自激过程模型
+- 贝叶斯权重自适应（动态调整四维权重，Beta-Binomial 共轭更新）
+
+#### API 层
+- 63+ REST 端点 + WebSocket 实时推送
+- JWT 鉴权（覆盖所有写操作端点）
+- API Rate Limiting（slowapi 100/min）
+- 信号质量追踪（outcome/forward_return/误报率）
+
+#### 前端
+- Vue 3 + TypeScript（48 个文件）
+- 9 页面 / 18 组件 / 13 API 模块 / 4 Pinia Stores
+- ECharts 图表集成
+
+#### 回测引擎
+- Sharpe / Sortino / Calmar / MaxDD 绩效指标
+- Walk-forward 验证
+- 参数敏感性分析
+
+#### LLM 推理
+- 多模型降级（OpenAI → Anthropic → 模板）
+- SHA-256 缓存
+- 多 LLM 交叉验证
+- 输出置信度评分
+
+#### 安全与运维
+- JWT + Rate Limiting + Token 黑名单
+- 数据库老化归档（>180 天自动压缩）
+- VACUUM + ANALYZE 定期维护
+- 每日增量 + 每周全量备份
+- Prometheus 告警规则 + Grafana Dashboard
+- structlog 结构化日志
+
+#### 通知系统
+- Email / Webhook / Telegram 多渠道
 
 ---
 
@@ -79,19 +129,19 @@
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                     Frontend (React + Vite + ECharts 6)                │
+│                     Frontend (Vue 3 + Vite + ECharts 6)                │
 │  ┌──────────┬──────────┬──────────┬──────────┬──────────┬──────────┐  │
 │  │Dashboard │ Gamma    │ Signals  │ Alerts   │ Config   │ LLM      │  │
 │  │+ Replay  │ Dashboard│ Panel    │ Center   │ Panel    │ Analysis │  │
 │  └────┬─────┴────┬─────┴────┬─────┴────┬─────┴────┬─────┴────┬─────┘  │
-│       │ TanStack Query (BFF dashboard-view 优先)                     │
+│       │ Pinia + Vue Composition API (BFF dashboard-view 优先)          │
 └───────┼──────────────────────┬─────────────────────────────────────────┘
-        │ REST (48+ 路由)       │ WebSocket
+        │ REST (63+ 路由)       │ WebSocket
         ▼                       ▼
 ┌───────────────────────────────────────────────────────────────────────┐
 │                      FastAPI Server (8524)                            │
 │  ┌─────────────────────────────────────────────────────────────────┐ │
-│  │                   REST API Layer (api_server.py)                │ │
+│  │                   REST API Layer (63+ routes)                  │ │
 │  │  /api/dashboard/*  /api/signals/*  /api/gex/*  /api/alerts/*    │ │
 │  │  /api/snapshots/*  /api/system/*  /api/config  /api/llm/*      │ │
 │  └────────────────────────┬─────────────────────────────────────────┘ │
@@ -104,7 +154,7 @@
 │  ┌────────────────────────▼────────────────────────────────────────┐ │
 │  │           RESTPollScheduler (asyncio + APScheduler)             │ │
 │  │  ┌────────────────────────────────────────────────────────────┐  │ │
-│  │  │   Data Fetcher Layer (8 数据维度)                           │  │ │
+│   │   │   Data Fetcher Layer (21 个 fetcher)                       │   │ │
 │  │  │   ┌──────────┬──────────┬──────────┬─────────────────┐   │  │ │
 │  │  │   │GEXMetrix │SqueezeM. │FINRA/    │AXLFI/DBMF/      │   │  │ │
 │  │  │   │fetcher   │fetcher   │yfinance  │Hyperliquid      │   │  │ │
@@ -127,7 +177,7 @@
                                    ▼
                     ┌──────────────────────────────┐
                     │   Multi-channel Notifier     │
-                    │   Email / Telegram / Discord │
+                    │   Email / Webhook / Telegram │
                     └──────────────────────────────┘
 ```
 
@@ -289,14 +339,14 @@ Multi-source-Resonance/
 ```
 Multi-source-Resonance/
 ├── backend/                       # 后端代码根目录
-│   ├── main.py                    # FastAPI 应用入口 (uvicorn 启动)
+│   ├── main.py                    # FastAPI 应用入口 (uvicorn 启动, 63+ 路由)
 │   ├── config.py                  # 配置管理 (Settings 类, 环境变量)
 │   ├── database.py                # SQLite async ORM (11 表 + 5 视图, aiosqlite)
 │   ├── api/                       # REST API 层
 │   │   ├── middleware/
 │   │   │   ├── auth.py            # JWT 鉴权中间件 (写端点保护)
 │   │   │   └── rate_limit.py      # API 限流 (slowapi, 100/min)
-│   │   ├── routes/                # 路由模块 (10 个蓝图)
+│   │   ├── routes/                # 路由模块 (13 个蓝图)
 │   │   │   ├── auth.py            #   认证 (login/refresh/logout)
 │   │   │   ├── dashboard.py       #   仪表盘聚合
 │   │   │   ├── gex.py             #   GEX 元数据
@@ -307,9 +357,10 @@ Multi-source-Resonance/
 │   │   │   ├── config.py          #   配置管理
 │   │   │   ├── system.py          #   系统 & 采集触发
 │   │   │   ├── metrics.py         #   Prometheus 指标
-│   │   │   └── analysis.py        #   LLM 分析
+│   │   │   ├── analysis.py        #   LLM 分析
+│   │   │   └── metrics.py         #   Prometheus 指标
 │   │   └── websocket.py           # WebSocket 管理
-│   ├── fetchers/                  # 数据采集层 → 对应原设计 data_fetchers/
+│   ├── fetchers/                  # 数据采集层 (21 个 fetcher) → 对应原设计 data_fetchers/
 │   │   ├── base.py                #   Fetcher 基类
 │   │   ├── base_alt.py            #   备选基类
 │   │   ├── gexmetrix_fetcher.py   #   GEXMetrix API
@@ -325,8 +376,15 @@ Multi-source-Resonance/
 │   │   ├── put_call_fetcher.py    #   Put/Call 比率
 │   │   ├── sentiment_fetcher.py   #   情绪指标
 │   │   ├── llm_fetcher.py         #   LLM 推理 (OpenAI→Anthropic→模板)
-│   │   └── cboe_fetcher.py        #   CBOE 数据
-│   ├── quant/                     # 量化逻辑层 → 对应原设计 quant_logic/
+│   │   ├── cboe_fetcher.py        #   CBOE 数据
+│   │   ├── squeezemetrics_fetcher.py #  SqueezeMetrics DIX/GEX
+│   │   ├── finra_fetcher.py       #   FINRA 做空数据
+│   │   ├── ccdata_fetcher.py      #   CCData 加密降级
+│   │   ├── stockgrid_fetcher.py   #   StockGrid
+│   │   ├── coinglass_fetcher.py   #   Coinglass
+│   │   ├── tradier_fetcher.py     #   Tradier
+│   │   └── dbmf_fetcher.py        #   DBMF 均线
+│   ├── quant/                     # 量化逻辑层 (13 个分析器) → 对应原设计 quant_logic/
 │   │   ├── scoring.py             #   四维共振评分
 │   │   ├── gex_analyzer.py        #   GEX 分析
 │   │   ├── vix_analyzer.py        #   VIX 分析
@@ -338,10 +396,11 @@ Multi-source-Resonance/
 │   │   ├── sector_analyzer.py     #   板块分析
 │   │   ├── put_call_analyzer.py   #   Put/Call 分析
 │   │   ├── sentiment_analyzer.py  #   情绪分析
-│   │   ├── bayesian_weights.py    #   贝叶斯权重自适应
-│   │   ├── hawkes_model.py        #   Hawkes 自激模型
+│   │   ├── bayesian_weights.py    #   贝叶斯权重自适应 (Beta-Binomial 共轭更新)
+│   │   ├── hawkes_model.py        #   Hawkes 自激模型 (AR(1) OLS)
 │   │   ├── llm_analyzer.py        #   LLM 分析器
 │   │   ├── llm_cache.py           #   LLM 推理缓存 (SHA-256 + SQLite)
+│   │   ├── signal_outcomes.py     #   信号结果追踪
 │   │   └── backtest_engine.py     #   回测引擎 (Walk-forward + 敏感性)
 │   ├── models/                    # Pydantic 数据模型 → 对应原设计 gateway/
 │   │   ├── common.py              #   通用模型
@@ -358,8 +417,21 @@ Multi-source-Resonance/
 │   │   ├── pipeline.py            #   主流水线
 │   │   ├── concurrent_executor.py #   并发执行器
 │   │   └── data_writer.py         #   数据写入器
+│   ├── backtest_engine/           # 独立回测引擎模块
+│   │   ├── engine.py              #   回测主引擎
+│   │   ├── metrics.py             #   绩效指标 (Sharpe/Sortino/Calmar/MaxDD)
+│   │   ├── walk_forward.py        #   Walk-forward 验证
+│   │   ├── sensitivity.py         #   参数敏感性分析
+│   │   └── visualizer.py          #   回测可视化
+│   ├── llm_inference/             # 独立 LLM 推理模块
+│   │   ├── base.py                #   LLM 基类
+│   │   ├── cache.py               #   推理缓存
+│   │   ├── confidence.py          #   置信度评分
+│   │   ├── multi_verify.py        #   多 LLM 交叉验证
+│   │   ├── prompt_builder.py      #   Prompt 构建
+│   │   └── response_parser.py     #   响应解析
 │   ├── notifications/             # 通知推送 → 对应原设计 notification/
-│   │   └── notifier.py            #   多渠道告警 (Email/Telegram/Discord)
+│   │   └── notifier.py            #   多渠道告警 (Email/Webhook/Telegram)
 │   ├── utils/                     # 工具模块
 │   │   ├── scheduler.py           #   APScheduler 任务编排
 │   │   ├── security.py            #   密码哈希/验证
@@ -369,7 +441,7 @@ Multi-source-Resonance/
 │       ├── unit/                  #   单元测试
 │       ├── integration/           #   集成测试
 │       └── conftest.py            #   pytest 配置
-├── frontend/                      # React + Vite 前端 (与 2.4 一致)
+├── frontend/                      # Vue 3 + Vite 前端 (48 个文件: 9 页面 / 18 组件 / 13 API / 4 Pinia Stores)
 ├── data/                          # 运行时数据
 │   ├── resonance.db               #   SQLite 数据库 (WAL)
 │   ├── resonance.db-shm
@@ -389,15 +461,15 @@ Multi-source-Resonance/
 
 | 原设计路径 | 实际代码路径 | 说明 |
 |------------|-------------|------|
-| `data_fetchers/` | `backend/fetchers/` | 14 个 fetcher 统一在此 |
+| `data_fetchers/` | `backend/fetchers/` | 21 个 fetcher 统一在此 |
 | `quant_logic/` | `backend/quant/` | 量化分析 + 评分 + 回测 |
 | `data_stream/event_bus.py` | `backend/eventbus/event_bus.py` | asyncio pub/sub |
 | `data_stream/signal_pipeline.py` | `backend/pipeline/pipeline.py` | 主流水线 |
 | `data_stream/rest_poll_scheduler.py` | `backend/utils/scheduler.py` | 任务编排 |
 | `gateway/` (schemas, validator) | `backend/models/` | Pydantic 数据模型 |
 | `signal_engine/` | `backend/quant/scoring.py` | 评分逻辑合并到 quant |
-| `llm_inference/` | `backend/quant/llm_analyzer.py` + `backend/fetchers/llm_fetcher.py` | LLM 推理拆分到 quant 和 fetchers |
-| `backtest_engine/` | `backend/quant/backtest_engine.py` | 独立回测引擎文件 |
+| `llm_inference/` | `backend/llm_inference/` + `backend/quant/llm_analyzer.py` + `backend/fetchers/llm_fetcher.py` | 独立 LLM 推理模块 + quant/fetchers 集成 |
+| `backtest_engine/` | `backend/backtest_engine/` + `backend/quant/backtest_engine.py` | 独立回测引擎模块 |
 | `notification/` | `backend/notifications/notifier.py` | 多渠道通知 |
 | `api_server.py` | `backend/main.py` | FastAPI 入口 |
 | `config/settings.py` | `backend/config.py` | 配置管理 |
@@ -864,13 +936,18 @@ WS /ws
 ### 6.1 FastAPI 启动流程
 
 ```python
-# api_server.py 启动序列
+# backend/main.py 启动序列
 
+1. FastAPI app 创建
+2. 数据库初始化 (SQLite WAL)
+3. 加载配置 (Settings)
 4. EventBus()                  # asyncio 队列
-5. RESTPollScheduler()        # 启动 APScheduler
-6. WebSocketManager()          # 管理 WS 连接
-7. Mount StaticFiles           # / → dist/
-8. uvicorn.run(host='0.0.0.0', port=8524)
+5. 注册路由 (13 个蓝图)
+6. 注册中间件 (JWT + Rate Limit)
+7. start_scheduler()           # APScheduler
+8. WebSocketManager()          # 管理 WS 连接
+9. Mount StaticFiles           # / → dist/
+10. uvicorn.run(host='0.0.0.0', port=8524)
 ```
 
 ### 6.2 异步并发模型
@@ -945,7 +1022,7 @@ GEXMetrix Snapshot
    v
 [Notifier + DB Writer]
    - 写入 signal_alerts
-   - 触发 Email / Telegram / Discord
+   - 触发 Email / Webhook / Telegram
    - 自动记录快照 (V3.1, 5 分钟节流)
 ```
 
@@ -1027,11 +1104,10 @@ class DataValidator:
 | 层 | 技术 | 版本 | 用途 |
 |----|------|------|------|
 | 构建 | Vite | 8.0 | 极速 HMR + 构建 |
-| UI 框架 | React | 18.3 | 函数组件 + Hooks |
-| 路由 | React Router | 7.17 | 客户端路由 |
-| 数据 | TanStack Query | 5 | 服务端状态缓存 |
-| 状态 | Zustand | 5.0 | 客户端状态 (auth, theme, timezone, staleness) |
-| 图表 | ECharts (echarts-for-react) | 6.1 | 自定义 resonance-v3 主题 |
+| UI 框架 | Vue | 3 | 组合式 API + `<script setup>` |
+| 路由 | Vue Router | 4 | 客户端路由 |
+| 状态 | Pinia | 2 | 客户端状态 (market, signals, replay, system) |
+| 图表 | ECharts (vue-echarts) | 6.1 | 自定义 resonance-v3 主题 |
 | CSS | Tailwind CSS | 4.3 | + CSS 变量设计令牌 (V3.0) |
 | HTTP | fetch + 自定义 client | - | API 调用 |
 | 类型 | TypeScript | 6.0 | 全量类型检查 |
@@ -1040,66 +1116,46 @@ class DataValidator:
 
 ```
 frontend/src/
-├── main.tsx               # 入口 (路由 + QueryClient)
-├── App.tsx                # 路由配置
-├── index.css              # V3.0 设计令牌 (475 行)
-├── pages/                 # 9 个页面 (路由目标)
-│   ├── Dashboard.tsx      # 主仪表盘 (四维评分 + V3.1 回放控制)
-│   ├── GammaDashboard.tsx # Gamma 深度仪表盘 (V2.5 重写)
-│   ├── SignalsPanel.tsx   # Regime Transition 信号列表
-│   ├── AlertCenter.tsx    # 告警中心
-│   ├── SystemStatus.tsx   # 系统状态
-│   ├── ConfigPanel.tsx    # 配置管理
-│   ├── LLMAnalysis.tsx    # LLM 推理报告
-│   ├── DarkpoolDetail.tsx # 暗池详细
-│   └── LoginPage.tsx      # 登录
+├── main.ts                # 入口 (Vue 应用 + Pinia + Router)
+├── App.vue                # 路由配置
+├── views/                 # 9 个页面
+│   ├── DashboardView.vue      # 主仪表盘
+│   ├── GEXView.vue            # Gamma 深度仪表盘
+│   ├── SignalsView.vue        # Regime Transition 信号
+│   ├── SystemView.vue         # 系统状态
+│   ├── SettingsView.vue       # 配置管理
+│   ├── AnalysisView.vue       # LLM 推理报告
+│   ├── DarkpoolView.vue       # 暗池详细
+│   ├── CryptoView.vue         # 加密衍生品
+│   └── VIXView.vue            # VIX 期限结构
 ├── components/            # 18 个复用组件
-│   ├── Layout.tsx         # 框架布局
-│   ├── GlassCard.tsx      # V3.0 玻璃拟态卡片
-│   ├── LiveTape.tsx       # V3.0 实时数据纸带
-│   ├── TimelineReplay.tsx # V3.1 时间线回放控制
-│   ├── SnapshotGallery.tsx# V3.1 快照画廊
-│   ├── GEXCurveChart.tsx  # GEX 时间序列
-│   ├── StrikeGexChart.tsx # 逐 Strike GEX/OI 分布
-│   ├── MultiChannelChart.tsx # 三通道 (GEX+VEX+CHEX) 叠加
-│   ├── NetGexHistoryChart.tsx # Net GEX 历史面积图
-│   ├── HistoricalTrend.tsx
-│   ├── DimensionCard.tsx  # 四维卡片
-│   ├── ResonanceGauge.tsx # 共振仪表盘
-│   ├── CrossAssetHeatmap.tsx
-│   ├── Sparkline.tsx
-│   ├── DataQualityBadge.tsx # 数据质量徽章
-│   ├── DrillDownModal.tsx   # 下钻详情
-│   ├── PipelineMonitorPanel.tsx # Pipeline 监控
-│   └── CountUp.tsx          # 数字动画
-├── api/                   # 15 个 API 模块
-│   ├── client.ts          # fetch 封装 (get/post)
-│   ├── gexmetrix.ts       # useGEXLatest/History/Levels/Strikes/DashboardView
-│   ├── gex.ts
-│   ├── dashboard.ts
-│   ├── signals.ts
-│   ├── alerts.ts
-│   ├── incidents.ts
-│   ├── snapshots.ts       # V3.1 快照 API
-│   ├── config.ts
-│   ├── llm.ts
-│   ├── notifications.ts
-│   ├── darkpool.ts
-│   ├── vix.ts
-│   ├── system.ts
-│   ├── auth.ts
-│   └── tickers.ts
-├── stores/                # Zustand stores
-│   ├── authStore.ts       # JWT token + 用户
-│   ├── themeStore.ts      # 双主题切换 (Dark/Light) V3.0
-│   ├── timezoneStore.ts   # 时区偏好
-│   └── stalenessStore.ts  # 数据新鲜度
-├── hooks/
-│   ├── useWebSocket.ts    # WS 长连接 + 订阅
-│   └── useStaleness.ts    # 数据新鲜度计算
-├── types/
-│   └── api.ts             # 共享 TS 类型
-└── utils/                 # 工具函数
+│   ├── charts/            #   ECharts 图表组件 (5)
+│   ├── dashboard/         #   仪表盘组件 (3)
+│   ├── gex/               #   GEX 组件 (2)
+│   ├── signals/           #   信号组件 (2)
+│   ├── vix/               #   VIX 组件 (1)
+│   ├── layout/            #   布局组件 (3)
+│   └── common/            #   通用组件 (2)
+├── api/                   # 13 个 API 模块
+│   ├── client.ts          #   fetch 封装
+│   ├── analysis.ts        #   LLM 分析
+│   ├── auth.ts            #   认证
+│   ├── config.ts          #   配置
+│   ├── crypto.ts          #   加密衍生品
+│   ├── dashboard.ts       #   仪表盘
+│   ├── darkpool.ts        #   暗池
+│   ├── gex.ts             #   GEX
+│   ├── metrics.ts         #   Prometheus 指标
+│   ├── signals.ts         #   信号
+│   ├── system.ts          #   系统
+│   ├── vix.ts             #   VIX
+│   └── websocket.ts       #   WebSocket
+├── stores/                # Pinia stores
+│   ├── market.ts          #   市场数据
+│   ├── signals.ts         #   信号状态
+│   ├── replay.ts          #   回放控制 (V3.1)
+│   └── system.ts          #   系统状态
+└── router/                # Vue Router 路由配置
 ```
 
 ### 7.3 路由表
@@ -1547,21 +1603,38 @@ cd ..
 ### 9.3 启动
 
 ```bash
-# 方式 1: 完整服务 (推荐生产)
-python api_server.py
-# -> http://localhost:8524 (前端 + API + WebSocket)
+# 方式 1: 启动后端 (推荐)
+python -m backend.main
+# -> http://localhost:8524 (API + WebSocket)
 
-# 方式 2: 仅后端 (开发)
-uvicorn api_server:app --reload --host 0.0.0.0 --port 8524
+# 方式 2: 启动前端开发服务器
+cd frontend && npm install && npm run dev
+# -> http://localhost:5173 (Vite HMR)
 
-# 方式 3: 调度器 (后台批量采集)
-python main_scheduler.py
+# 方式 3: 构建前端 (生产模式)
+cd frontend && npm run build
 
 # 方式 4: 手动触发一次完整采集
 curl -X POST http://localhost:8524/api/system/collect-manual
 ```
 
-### 9.4 验证
+### 9.4 运行测试
+
+```bash
+# 全量回归
+pytest backend/tests/ -v
+
+# 单元测试
+pytest backend/tests/unit/ -v
+
+# 集成测试
+pytest backend/tests/integration/ -v
+
+# 前端类型检查
+cd frontend && npx tsc --noEmit
+```
+
+### 9.5 验证
 
 ```bash
 # 健康检查
@@ -1613,7 +1686,7 @@ After=network.target
 Type=simple
 User=trim
 WorkingDirectory=/opt/Multi-source-Resonance
-ExecStart=/opt/Multi-source-Resonance/.venv/bin/python api_server.py
+ExecStart=/opt/Multi-source-Resonance/.venv/bin/python -m backend.main
 Restart=always
 RestartSec=10
 
@@ -1640,25 +1713,19 @@ sudo systemctl status multi-source-resonance
 
 ```bash
 # 全量回归
-pytest tests/ -v
+pytest backend/tests/ -v
 
-# 信号引擎 (Layer1/2/3)
-pytest tests/test_phase5_signal_engine.py -v
-
-# 回测引擎
-pytest tests/test_backtest_engine.py -v
+# 单元测试
+pytest backend/tests/unit/ -v
 
 # 集成测试
-pytest tests/test_pipeline_integration.py -v
+pytest backend/tests/integration/ -v
 
 # 前端类型检查
 cd frontend && npx tsc --noEmit
 
 # 前端构建
 cd frontend && npm run build
-
-# 健康检查脚本
-python check_status.py
 ```
 
 ---
@@ -1691,11 +1758,11 @@ python check_status.py
 | **v2.1** | 2026-Q2 | 增加 Hawkes AR(1) 分支比 + 跨资产热力图 |
 | **v2.2** | 2026-Q2 | 数据校验防线 (Pandera + Greeks 边界) |
 | **v2.3** | 2026-05 | GEXMetrix 集成 + 7 数据源统一 |
-| **v2.4** | 2026-05 | Web UI 重构 (React + TanStack Query) |
+| **v2.4** | 2026-05 | Web UI 重构 (Vue 3 + Pinia) |
 | **v2.5** | 2026-06 | **三通道监控** + 流动性门控 + BFF 聚合 + 逐 strike 真实分布 + 90 天回填 |
 | **v2.6** | 2026-06 | LLM 输入脱敏 (SPX→Asset_A) + 幻觉检测 |
 | **v3.0** | 2026-06 | **玻璃拟态 UI 现代化**: ECharts 6 迁移 + 双主题 + 设计令牌 + GlassCard + LiveTape |
-| **v3.1** | 2026-07 | **历史回放 (Time-Travel)**: 快照时间线 + TimelineReplay + SnapshotGallery + 自动快照记录 |
+| **v3.1** | 2026-07 | **历史回放 (Time-Travel)**: 快照时间线 + TimelineReplay + SnapshotGallery + 自动快照记录 + 21 fetcher + 63+ API + 贝叶斯权重 + 回测引擎 + JWT 安全加固 |
 
 **v2.5 详细变更**:
 
@@ -1747,12 +1814,24 @@ python check_status.py
 #### B — TimelineReplay 回放控制
 - 时间滑块 + 播放/暂停 + 0.5x / 1x / 2x / 4x 倍速
 - `replayMode` 状态切换，快照数据与实时数据共享 DashboardScores 结构
-- Dashboard.tsx 内嵌回放控制栏
+- DashboardView.vue 内嵌回放控制栏
 
 #### C — SnapshotGallery 快照画廊
 - 按日期分组的快照卡片网格
 - 点击快照卡片直接 Time-Travel 到该时刻
 - 显示时间戳 + 共振评分
+
+#### D — 后端架构完善
+- 21 个数据源 fetcher（新增 Flow, Sector, Macro, Put/Call, Coinglass, Tradier, DBMF 等）
+- 63+ REST 端点 + WebSocket 实时推送
+- JWT 鉴权覆盖所有写操作端点 + Token 黑名单
+- API Rate Limiting (slowapi 100/min)
+- 贝叶斯权重自适应集成到评分流程
+- 回测引擎: Walk-forward + 参数敏感性 + Sharpe/Sortino/Calmar/MaxDD
+- LLM 推理: 多模型降级 + SHA-256 缓存 + 多 LLM 交叉验证
+- 数据库老化归档 (>180 天自动压缩) + VACUUM + ANALYZE
+- structlog 结构化日志 + Prometheus 告警规则 + Grafana Dashboard
+- 通知系统: Email / Webhook / Telegram 多渠道
 
 ---
 
@@ -1777,7 +1856,7 @@ python check_status.py
 ### A.1 GEXMetrix 采集失败
 **症状**: `[ERROR] GEXMetrix 核心标的拉取无数据返回`
 **根因**: `save_snapshot` 函数体被破坏(filepath 返回 None)
-**修复**: 见 `data_fetchers/gexmetrix_fetcher.py:save_snapshot`
+**修复**: 见 `backend/fetchers/gexmetrix_fetcher.py:save_snapshot`
 
 ### A.2 strikes 表为空
 **症状**: `SELECT COUNT(*) FROM gex_strikes` 返回 0
@@ -1787,8 +1866,8 @@ python check_status.py
 python -c "
 import sys, json
 sys.path.insert(0, '.')
-from data_fetchers.gexmetrix_fetcher import GEXMetrixFetcher
-from database.db_manager import DatabaseManager
+from backend.fetchers.gexmetrix_fetcher import GEXMetrixFetcher
+from backend.database import DatabaseManager
 fetcher = GEXMetrixFetcher()
 db = DatabaseManager()
 db._create_gex_strikes_table()
@@ -1808,10 +1887,10 @@ for sym in ['SPX','SPY','QQQ','IWM','NDX','VIX']:
 **修复**:
 ```bash
 # 查进程
-ps -ef | grep api_server | grep -v grep
+ps -ef | grep backend.main | grep -v grep
 # 重启
-pkill -f api_server.py
-nohup python -u api_server.py > api_server.log 2>&1 &
+pkill -f backend.main
+nohup python -u -m backend.main > backend.log 2>&1 &
 ```
 
 ---
