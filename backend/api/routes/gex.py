@@ -171,7 +171,7 @@ async def gex_dashboard_view(
     symbol: str,
     history_days: int = Query(3, ge=1, le=7, description="GEXMetrix short window"),
     long_days: int = Query(90, ge=30, le=365, description="SqueezeMetrics long window"),
-    strikes_limit: int = Query(200, ge=10, le=600, description="ATM strike count"),
+    strikes_limit: int = Query(200, ge=1, le=600, description="ATM strike count"),
 ):
     """BFF aggregation — single call returns 6 sections for Gamma Dashboard.
 

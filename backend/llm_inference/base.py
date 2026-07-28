@@ -95,15 +95,25 @@ class BaseLLMClient(ABC):
 
 
 class OpenAIClient(BaseLLMClient):
-    """OpenAI GPT-4o client."""
+    """OpenAI-compatible client (works with OpenAI, DeepSeek, OpenRouter, etc.).
 
-    API_URL = "https://api.openai.com/v1/chat/completions"
+    Configure via env:
+      OPENAI_API_KEY   (required when is_available matters)
+      OPENAI_BASE_URL  (default: https://api.openai.com/v1) — set to
+                       https://api.deepseek.com/v1 for DeepSeek etc.
+      OPENAI_MODEL     (default: gpt-4o)
+    """
 
     def _get_env_key(self) -> Optional[str]:
         return os.environ.get("OPENAI_API_KEY")
 
     def _default_model(self) -> str:
-        return "gpt-4o"
+        return os.environ.get("OPENAI_MODEL", "gpt-4o")
+
+    def _api_url(self) -> str:
+        """Build chat completions URL, honoring OPENAI_BASE_URL override."""
+        base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+        return f"{base}/chat/completions"
 
     @property
     def provider_name(self) -> str:
@@ -140,7 +150,7 @@ class OpenAIClient(BaseLLMClient):
 
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(self.API_URL, json=body, headers=headers)
+                resp = await client.post(self._api_url(), json=body, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
 
