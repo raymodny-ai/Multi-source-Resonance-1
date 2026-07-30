@@ -20,7 +20,15 @@ class WebSocketClient {
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.hostname
-    const port = window.location.port || '8524'
+    // ponytail: WS port fallback — reads VITE_WS_PORT at build time.
+    // 8524 was the legacy MSR port (server dead since 7-25); 8525 is MSR-1 v3.1.
+    // Override with VITE_WS_PORT=xxxx in frontend/.env if backend moves.
+    // When Vite dev proxy is in front (default at :5173), this is unused —
+    // vite.config.ts routes /ws to ws://localhost:8525.
+    const port =
+      window.location.port ||
+      (import.meta.env.VITE_WS_PORT as string | undefined) ||
+      '8525'
     const url = `${protocol}//${host}:${port}/ws`
 
     this.shouldReconnect = true
