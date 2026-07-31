@@ -56,6 +56,8 @@ class WebSocketManager:
         async with self._lock:
             connections = list(self._connections.items())
 
+        topic = message.get("topic", "?")
+        sent = 0
         for ws, topics in connections:
             try:
                 # If client has topic filters, check them
@@ -64,8 +66,13 @@ class WebSocketManager:
                     if msg_topic not in topics and "*" not in topics:
                         continue
                 await ws.send_text(payload)
-            except Exception:
+                sent += 1
+            except Exception as exc:
+                logger.warning(f"[ws] send_text failed for topic={topic}: {type(exc).__name__}: {exc}")
                 disconnected.append(ws)
+
+        if sent or disconnected:
+            logger.info(f"[ws] broadcast topic={topic} sent={sent}/{len(connections)} disconnected={len(disconnected)}")
 
         # Clean up disconnected clients
         for ws in disconnected:
