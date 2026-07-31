@@ -79,7 +79,7 @@ export function ErrorToast() {
           role={item.tone === 'danger' ? 'alert' : 'status'}
           className={cn(
             'rounded-md border px-4 py-3 shadow-md backdrop-blur',
-            'animate-in fade-in slide-in-from-right-4',
+            'animate-slide-in-right',
             item.tone === 'danger' && 'border-[var(--color-danger)]/40 bg-[var(--color-danger)]/15',
             item.tone === 'warning' && 'border-[var(--color-warning)]/40 bg-[var(--color-warning)]/15',
             item.tone === 'info' && 'border-[var(--color-info)]/40 bg-[var(--color-info)]/15',

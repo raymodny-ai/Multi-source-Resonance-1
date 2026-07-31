@@ -14,7 +14,8 @@ import {
   AlertDialogTitle,
 } from 'sparkdesign';
 import type { Signal } from '@/lib/api/types';
-import { fmtClock, fmtNum, levelTone } from '@/lib/utils/format';
+import { fmtClock, fmtNum } from '@/lib/utils/format';
+import { levelLabel, levelOf, levelTone } from '@/lib/utils/signal';
 import { cn } from '@/lib/utils/cn';
 
 interface AcknowledgeDialogProps {
@@ -45,23 +46,25 @@ export function AcknowledgeDialog({
           <div className="px-6 py-2 space-y-1 text-sm">
             <div className="flex justify-between">
               <span className="text-[var(--color-text-muted)]">时间</span>
-              <span className="font-mono">{fmtClock(signal.timestamp)}</span>
+              <span className="font-mono">{fmtClock(signal.trigger_time ?? signal.timestamp)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-[var(--color-text-muted)]">综合分</span>
-              <span className="font-mono font-semibold">{fmtNum(signal.resonance_score, 2)}</span>
+              <span className="font-mono font-semibold">
+                {fmtNum(signal.total_score ?? signal.resonance_score, 2)}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-[var(--color-text-muted)]">等级</span>
               <span
                 className={cn(
                   'font-bold text-xs uppercase tracking-wider',
-                  levelTone(signal.alert_level ?? 0) === 'danger' && 'text-[var(--color-danger)]',
-                  levelTone(signal.alert_level ?? 0) === 'warning' && 'text-[var(--color-warning)]',
-                  levelTone(signal.alert_level ?? 0) === 'info' && 'text-[var(--color-info)]',
+                  levelTone(levelOf(signal)) === 'danger' && 'text-[var(--color-danger)]',
+                  levelTone(levelOf(signal)) === 'warning' && 'text-[var(--color-warning)]',
+                  levelTone(levelOf(signal)) === 'info' && 'text-[var(--color-info)]',
                 )}
               >
-                {signal.alert_level != null ? `LEVEL ${signal.alert_level}` : '—'}
+                {levelLabel(levelOf(signal))}
               </span>
             </div>
           </div>

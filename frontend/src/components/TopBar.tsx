@@ -4,6 +4,7 @@
  * - Last update timestamp
  * - Alert level badge
  * - Theme toggle（light/dark）+ collapse sidebar
+ * - 移动端 hamburger 按钮
  */
 import { useLocation } from 'react-router-dom';
 import { useUIStore, applySparkTheme } from '@/lib/stores/ui';
@@ -26,12 +27,16 @@ const ROUTE_TITLES: Record<string, string> = {
 
 function findTitle(pathname: string): string {
   if (ROUTE_TITLES[pathname]) return ROUTE_TITLES[pathname];
-  // prefix match
   const match = Object.keys(ROUTE_TITLES).find((k) => k !== '/' && pathname.startsWith(k));
   return match ? ROUTE_TITLES[match] : 'MSR';
 }
 
-export function TopBar() {
+interface TopBarProps {
+  onMobileMenuToggle?: () => void;
+  showMobileMenu?: boolean;
+}
+
+export function TopBar({ onMobileMenuToggle, showMobileMenu = false }: TopBarProps) {
   const loc = useLocation();
   const theme = useUIStore((s) => s.theme);
   const style = useUIStore((s) => s.style);
@@ -46,7 +51,12 @@ export function TopBar() {
     applySparkTheme(theme, style);
   }, [theme, style]);
 
-  const alertLevel = dashboard?.alert_level ?? latestSignal?.alert_level ?? null;
+  const alertLevel = (() => {
+    const raw = dashboard?.alert_level ?? latestSignal?.alert_level ?? null;
+    if (raw == null) return null;
+    const n = typeof raw === 'number' ? raw : Number(raw);
+    return Number.isFinite(n) ? n : null;
+  })();
 
   return (
     <header
@@ -54,11 +64,24 @@ export function TopBar() {
       role="banner"
     >
       <div className="flex items-center gap-3 min-w-0">
+        {/* Mobile menu toggle */}
+        {showMobileMenu && (
+          <button
+            type="button"
+            onClick={onMobileMenuToggle}
+            className="p-1.5 rounded hover:bg-[var(--color-bg-elevated)] focus-visible:outline-2 focus-visible:outline-[var(--color-primary)] md:hidden"
+            aria-label="打开导航菜单"
+          >
+            <span className="text-base">≡</span>
+          </button>
+        )}
+        {/* Desktop sidebar toggle */}
         <button
           type="button"
           onClick={toggleSidebar}
-          className="p-1.5 rounded hover:bg-[var(--color-bg-elevated)] focus-visible:outline-2 focus-visible:outline-[var(--color-primary)]"
+          className="p-1.5 rounded hover:bg-[var(--color-bg-elevated)] focus-visible:outline-2 focus-visible:outline-[var(--color-primary)] hidden md:inline-flex"
           aria-label="切换侧边栏"
+          aria-expanded
         >
           <span className="text-base">≡</span>
         </button>
@@ -85,7 +108,7 @@ export function TopBar() {
         )}
 
         {/* Last update */}
-        <span className="font-mono" title={lastUpdateAt ?? ''}>
+        <span className="font-mono hidden sm:inline" title={lastUpdateAt ?? ''}>
           {lastUpdateAt ? `更新 ${fmtClock(lastUpdateAt)} · ${fmtRelative(lastUpdateAt)}` : '尚无更新'}
         </span>
 

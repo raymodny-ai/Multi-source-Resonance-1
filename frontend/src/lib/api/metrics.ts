@@ -1,19 +1,19 @@
 /**
- * Metrics API（Prometheus 格式或 JSON 摘要）
+ * Metrics API
+ * 与 backend/api/routes/metrics.py 对齐：
+ * - GET /api/metrics         → Prometheus 文本格式（不要在类型化 JSON 用）
+ * - GET /api/metrics/summary → JSON summary { uptime_seconds, pipeline, event_bus, database }
  */
 import { get } from './client';
+import type { MetricsSummary } from './types';
 
-export interface MetricsSummary {
-  pipeline_up: number;
-  signals_total: number;
-  fetcher_success_rate: number;
-  /** 维度命中率 */
-  dimension_hit_rate: Record<string, number>;
-  /** 最近 1h 信号计数 */
-  signals_last_1h: number;
-  fetched_at: string | null;
-}
+export type { MetricsSummary };
 
 export function getMetricsSummary(): Promise<MetricsSummary> {
   return get<MetricsSummary>('/api/metrics/summary');
+}
+
+/** Prometheus 文本指标 — 用于嵌入式展示 */
+export function getPrometheusMetrics(): Promise<string> {
+  return get<string>('/api/metrics', { responseType: 'text' });
 }

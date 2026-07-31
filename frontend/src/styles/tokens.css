@@ -6,7 +6,7 @@
 :root {
   /* 字体栈 */
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   /* 尺寸 */
   --sidebar-width: 220px;
@@ -14,6 +14,11 @@
   --topbar-height: 56px;
   --radius-card: 8px;
   --radius-button: 4px;
+
+  /* 动画时序 */
+  --transition-fast: 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 320ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* 暗色主题微调 */
@@ -55,6 +60,7 @@
   border-radius: var(--radius-card);
   padding: 16px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
 }
 
 /* 数字徽章（mono + tabular-nums） */
@@ -62,4 +68,98 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+}
+
+/* ─── P4 进入/退出动画 ────────────────────────────────────────── */
+@keyframes msr-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes msr-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes msr-slide-in-right {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes msr-slide-in-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes msr-slide-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes msr-scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes msr-pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.85); }
+}
+
+@keyframes msr-shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+
+.animate-fade-in {
+  animation: msr-fade-in var(--transition-base) both;
+}
+.animate-slide-in-right {
+  animation: msr-slide-in-right var(--transition-base) both;
+}
+.animate-slide-in-left {
+  animation: msr-slide-in-left var(--transition-base) both;
+}
+.animate-slide-in-up {
+  animation: msr-slide-in-up var(--transition-base) both;
+}
+.animate-scale-in {
+  animation: msr-scale-in var(--transition-base) both;
+}
+.animate-pulse-dot {
+  animation: msr-pulse-dot 1.6s ease-in-out infinite;
+}
+
+/* Shimmer skeleton 效果 */
+.msr-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-elevated) 0%,
+    var(--color-border) 50%,
+    var(--color-bg-elevated) 100%
+  );
+  background-size: 200px 100%;
+  background-repeat: no-repeat;
+  animation: msr-shimmer 1.6s linear infinite;
+  border-radius: var(--radius-card);
+}
+
+/* ─── Reduced motion ─────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ─── 响应式：移动端优先隐藏 sidebar ──────────────────────────── */
+@media (max-width: 767px) {
+  :root {
+    --sidebar-width: 220px;
+    --sidebar-width-collapsed: 0px;
+  }
 }

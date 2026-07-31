@@ -15,6 +15,7 @@ import { DashboardSkeleton } from '@/components/dashboard/DashboardSkeleton';
 import { AlertBanner } from '@/components/AlertBanner';
 import { PageHeader } from '@/components/PageHeader';
 import { useMemo } from 'react';
+import { fmtClock, fmtRelative } from '@/lib/utils/format';
 
 export function DashboardView() {
   useDashboardWSSync();
@@ -27,7 +28,7 @@ export function DashboardView() {
     if (error) {
       return (
         <AlertBanner tone="danger" title="无法加载 Dashboard 数据">
-          后端连接失败，将显示缓存或占位数据。{(error as Error).message}
+          后端连接失败，将显示缓存或占位数据。{(error as Error).message ?? ''}
         </AlertBanner>
       );
     }
@@ -75,10 +76,7 @@ export function DashboardView() {
           loading={isLoading && !data}
         />
         <div className="lg:col-span-2">
-          <DimensionScoreCards
-            dimensions={data?.dimensions ?? []}
-            loading={isLoading && !data}
-          />
+          <DimensionScoreCards data={data} loading={isLoading && !data} />
         </div>
       </div>
 
@@ -99,7 +97,12 @@ export function DashboardView() {
       </div>
 
       <p className="text-[10px] text-[var(--color-text-muted)] mt-6 font-mono">
-        上次更新：{dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleString('zh-CN') : '—'}
+        上次更新：
+        {data?.last_cycle_at
+          ? `${fmtClock(data.last_cycle_at)} · ${fmtRelative(data.last_cycle_at)}`
+          : dataUpdatedAt
+            ? new Date(dataUpdatedAt).toLocaleString('zh-CN')
+            : '—'}
       </p>
     </>
   );

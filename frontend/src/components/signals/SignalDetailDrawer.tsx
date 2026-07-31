@@ -19,7 +19,8 @@ import { Button } from 'sparkdesign';
 import { Separator } from 'sparkdesign';
 import ReactECharts from 'echarts-for-react';
 import type { Signal } from '@/lib/api/types';
-import { fmtClock, fmtNum, fmtPct, fmtTime, levelTone } from '@/lib/utils/format';
+import { fmtClock, fmtNum, fmtPct, fmtTime } from '@/lib/utils/format';
+import { dimScore, levelLabel, levelOf, levelTone } from '@/lib/utils/signal';
 import { cn } from '@/lib/utils/cn';
 
 interface SignalDetailDrawerProps {
@@ -30,9 +31,8 @@ interface SignalDetailDrawerProps {
   acknowledging?: boolean;
 }
 
-function dimensionValue(s: Signal, key: keyof Signal): number {
-  const v = s[key];
-  return typeof v === 'number' && !Number.isNaN(v) ? v : 0;
+function dimensionValue(s: Signal, key: 'gex' | 'vix' | 'crypto' | 'darkpool'): number {
+  return dimScore(s, key);
 }
 
 export function SignalDetailDrawer({
@@ -70,10 +70,10 @@ export function SignalDetailDrawer({
           data: [
             {
               value: [
-                dimensionValue(signal, 'gex_score'),
-                dimensionValue(signal, 'vix_score'),
-                dimensionValue(signal, 'crypto_score'),
-                dimensionValue(signal, 'darkpool_score'),
+                dimensionValue(signal, 'gex'),
+                dimensionValue(signal, 'vix'),
+                dimensionValue(signal, 'crypto'),
+                dimensionValue(signal, 'darkpool'),
               ],
               name: '维度分项',
             },
@@ -96,7 +96,7 @@ export function SignalDetailDrawer({
     );
   }
 
-  const tone = levelTone(signal.alert_level ?? 0);
+  const tone = levelTone(levelOf(signal));
   const outcome = signal.outcome;
   const toneCls =
     tone === 'danger'
@@ -105,6 +105,10 @@ export function SignalDetailDrawer({
         ? 'text-[var(--color-warning)]'
         : 'text-[var(--color-info)]';
 
+  const ts = signal.trigger_time ?? signal.timestamp ?? null;
+  const totalScore = signal.total_score ?? signal.resonance_score ?? null;
+  const lvlNum = levelOf(signal);
+
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent side="right" className="w-full sm:max-w-lg flex flex-col">
@@ -112,10 +116,10 @@ export function SignalDetailDrawer({
           <div className="flex items-center justify-between gap-3">
             <DrawerTitle>信号 #{signal.id}</DrawerTitle>
             <span className={cn('font-bold text-sm uppercase tracking-wider', toneCls)}>
-              {signal.alert_level != null ? `LEVEL ${signal.alert_level}` : '—'}
+              {levelLabel(lvlNum)}
             </span>
           </div>
-          <DrawerDescription>{fmtTime(signal.timestamp)} · {fmtClock(signal.timestamp)}</DrawerDescription>
+          <DrawerDescription>{fmtTime(ts)} · {fmtClock(ts)}</DrawerDescription>
         </DrawerHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-2 space-y-5">
@@ -140,7 +144,7 @@ export function SignalDetailDrawer({
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
               <div className="flex justify-between">
                 <dt className="text-[var(--color-text-muted)]">综合分</dt>
-                <dd className="font-mono font-semibold">{fmtNum(signal.resonance_score, 2)}</dd>
+                <dd className="font-mono font-semibold">{fmtNum(totalScore, 2)}</dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-[var(--color-text-muted)]">GEX</dt>

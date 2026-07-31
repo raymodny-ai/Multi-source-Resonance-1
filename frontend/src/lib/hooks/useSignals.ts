@@ -1,9 +1,15 @@
 /**
  * TanStack Query hooks — Signals
+ * 与 backend/api/routes/signals.py 一致：分页用 offset/limit；字段以 signal_alerts 表为准
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { acknowledgeSignal, getSignalsHistory } from '@/lib/api/signals';
-import type { Signal, SignalLevelFilter, SignalOutcomeFilter } from '@/lib/api/types';
+import type {
+  PaginatedResponse,
+  Signal,
+  SignalLevelFilter,
+  SignalOutcomeFilter,
+} from '@/lib/api/types';
 import { useEffect, useState } from 'react';
 import { useWebSocketContext } from '@/lib/ws/WebSocketProvider';
 
@@ -28,17 +34,18 @@ export const defaultSignalFilters: SignalFilters = {
 };
 
 export function useSignalsHistory(filters: SignalFilters) {
-  return useQuery({
+  return useQuery<PaginatedResponse<Signal>>({
     queryKey: ['signals', 'history', filters],
-    queryFn: () => getSignalsHistory({
-      level: filters.level,
-      outcome: filters.outcome,
-      search: filters.search || undefined,
-      startDate: filters.startDate ?? undefined,
-      endDate: filters.endDate ?? undefined,
-      page: filters.page,
-      limit: filters.limit,
-    }),
+    queryFn: () =>
+      getSignalsHistory({
+        level: filters.level,
+        outcome: filters.outcome,
+        search: filters.search || undefined,
+        startDate: filters.startDate ?? undefined,
+        endDate: filters.endDate ?? undefined,
+        page: filters.page,
+        limit: filters.limit,
+      }),
     staleTime: 10_000,
     placeholderData: (prev) => prev,
   });
@@ -61,7 +68,11 @@ export function useSignalsWSSync() {
   useEffect(() => {
     if (!ws) return;
     const unsub = ws.subscribe((msg) => {
-      if (msg.type === 'SIGNAL_ALERT') {
+      const t =
+        (msg as unknown as { topic?: string }).topic ??
+        (msg as unknown as { type?: string }).type;
+      const typeStr = typeof t === 'string' ? t : '';
+      if (typeStr === 'SIGNAL_ALERT' || typeStr === 'SIGNAL_GENERATED' || typeStr === 'SIGNAL') {
         qc.invalidateQueries({ queryKey: ['signals'] });
       }
     });
@@ -74,7 +85,6 @@ export function useSignalFiltersState(initial: Partial<SignalFilters> = {}) {
   const [filters, setFilters] = useState<SignalFilters>({ ...defaultSignalFilters, ...initial });
   const update = (patch: Partial<SignalFilters>) =>
     setFilters((f) => {
-      // 任何过滤条件变化都重置到第 1 页（显式指定 page 时跳过）
       const next = { ...f, ...patch };
       if (!('page' in patch)) next.page = 1;
       return next;

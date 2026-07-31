@@ -47,7 +47,7 @@ export function AlertBanner({
     <div
       role={role}
       className={cn(
-        'flex items-start gap-3 rounded-md border px-4 py-3',
+        'flex items-start gap-3 rounded-md border px-4 py-3 animate-slide-in-up',
         toneClasses[tone],
         className,
       )}

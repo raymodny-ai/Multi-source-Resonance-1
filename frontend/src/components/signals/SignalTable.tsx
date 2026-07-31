@@ -12,7 +12,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from 's
 import { Badge } from 'sparkdesign';
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis } from 'sparkdesign';
 import type { Signal } from '@/lib/api/types';
-import { fmtClock, fmtNum, fmtPct, levelTone } from '@/lib/utils/format';
+import { fmtClock, fmtNum, fmtPct } from '@/lib/utils/format';
+import { levelOf, levelTone } from '@/lib/utils/signal';
 import { cn } from '@/lib/utils/cn';
 
 interface SignalTableProps {
@@ -44,7 +45,8 @@ function acknowledgementBadge(s: Signal) {
 }
 
 function levelBadge(level: number | null) {
-  const lvl = level ?? 0;
+  // 兼容字符串 alert_level（归一化）
+  const lvl = level != null && typeof level === 'number' ? level : 0;
   const tone = levelTone(lvl);
   return {
     label: lvl === 0 ? '—' : `L${lvl}`,
@@ -111,7 +113,8 @@ export function SignalTable({
           </TableHeader>
           <TableBody>
             {rows.map((s) => {
-              const lb = levelBadge(s.alert_level);
+              const lvlNum = levelOf(s);
+              const lb = levelBadge(lvlNum);
               const ob = outcomeBadge(s.outcome);
               const ab = acknowledgementBadge(s);
               const selected = selectedId === s.id;
@@ -134,7 +137,7 @@ export function SignalTable({
                   )}
                 >
                   <TableCell className="font-mono text-xs text-[var(--color-text-muted)]">{s.id}</TableCell>
-                  <TableCell className="font-mono text-xs">{fmtClock(s.timestamp)}</TableCell>
+                  <TableCell className="font-mono text-xs">{fmtClock(s.trigger_time ?? s.timestamp)}</TableCell>
                   <TableCell>
                     <span
                       className={cn('inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider', lb.cls)}
@@ -143,7 +146,7 @@ export function SignalTable({
                     </span>
                   </TableCell>
                   <TableCell className="text-right font-mono font-semibold">
-                    {fmtNum(s.resonance_score, 2)}
+                    {fmtNum(s.total_score ?? s.resonance_score, 2)}
                   </TableCell>
                   <TableCell className="text-right font-mono text-xs">{fmtNum(s.gex_score, 2)}</TableCell>
                   <TableCell className="text-right font-mono text-xs">{fmtNum(s.vix_score, 2)}</TableCell>

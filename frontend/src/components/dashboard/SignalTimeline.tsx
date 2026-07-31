@@ -2,14 +2,11 @@
  * 24h 信号时间线（sparkline + 等级点）
  * - 折线表示综合分数（最近 24h 历史的最近 24 个 cycle）
  * - 颜色点表示各级信号
- *
- * 注：目前 backend 还没提供 signals-timeline 端点，所以这里用 signals-history 模拟。
- * P2 阶段会替换为专用 /api/dashboard/signals-timeline。
  */
 import ReactECharts from 'echarts-for-react';
-import { useSignalsHistory } from '@/lib/hooks/useSignals';
-import { defaultSignalFilters } from '@/lib/hooks/useSignals';
+import { useSignalsHistory, defaultSignalFilters } from '@/lib/hooks/useSignals';
 import { fmtClock, levelTone } from '@/lib/utils/format';
+import { levelOf, scoreOf, tsOf } from '@/lib/utils/signal';
 
 function toneColor(level: number): string {
   const t = levelTone(level);
@@ -40,7 +37,7 @@ export function SignalTimeline({ height = 120 }: { height?: number }) {
     },
     xAxis: {
       type: 'category',
-      data: rows.map((s) => fmtClock(s.timestamp, '')),
+      data: rows.map((s) => fmtClock(tsOf(s), '')),
       axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
       axisLabel: { color: '#6b6b80', fontSize: 10, interval: 3 },
     },
@@ -62,7 +59,7 @@ export function SignalTimeline({ height = 120 }: { height?: number }) {
           color: (p: { data: { level: number } }) => toneColor(p.data.level),
           borderColor: '#6366f1',
         },
-        data: rows.map((s) => ({ value: s.resonance_score ?? 0, score: s.resonance_score, level: s.alert_level ?? 0 })),
+        data: rows.map((s) => ({ value: scoreOf(s), score: scoreOf(s), level: levelOf(s) })),
       },
     ],
   };
