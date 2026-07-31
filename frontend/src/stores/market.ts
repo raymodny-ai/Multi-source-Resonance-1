@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, onScopeDispose } from 'vue'
 import { getDashboard, getDashboardScores, type DashboardScores, type DashboardData } from '@/api/dashboard'
 import { getGEXSummary, type GEXSnapshot } from '@/api/gex'
 import { getVIXLatest, type VIXData } from '@/api/vix'
 import { getCryptoLatest, type CryptoData } from '@/api/crypto'
 import { getDarkpoolLatest, type DarkpoolData } from '@/api/darkpool'
+import wsClient from '@/api/websocket'
 
 export const useMarketStore = defineStore('market', () => {
   // State
@@ -63,6 +64,19 @@ export const useMarketStore = defineStore('market', () => {
       console.error('Failed to fetch dimensions:', e)
     }
   }
+
+  // ponytail: WebSocket live-update — backend broadcasts `data.fetch.complete`
+  // after each periodic pipeline run (~30s). We re-fetch dashboard + dimensions
+  // on that signal so the UI follows DB state without manual refresh.
+  const liveHandler = (msg: { topic: string; payload: any }) => {
+    if (msg.topic === 'data.fetch.complete') {
+      // fire-and-forget; fetchDashboard/fetchAllDimensions handle their own errors
+      void fetchDashboard()
+      void fetchAllDimensions()
+    }
+  }
+  wsClient.subscribe('*', liveHandler)
+  onScopeDispose(() => wsClient.unsubscribe('*', liveHandler))
 
   return {
     dashboardData, scores, gexSummary, vixData, cryptoData, darkpoolData,
