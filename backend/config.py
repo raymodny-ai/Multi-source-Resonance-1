@@ -65,8 +65,17 @@ class Settings(BaseSettings):
     def is_mock_mode(self, source: str) -> bool:
         """Check whether a given data source should run in mock mode.
 
+        The mapping is intentionally narrow: only ``gexmetrix`` and ``axlfi``
+        are gated on dedicated API keys. All other public / fallback sources
+        (VIX, yfinance, CBOE, FINRA, SqueezeMetrics, StockGrid, DBMF,
+        put/call, darkpool) attempt a real fetch first and only fall back
+        to mock data when the upstream request fails or the optional API
+        key (CCData/Coinglass/Tradier) is missing.
+
         Args:
-            source: One of 'gexmetrix', 'axlfi', 'crypto', 'darkpool'
+            source: One of 'gexmetrix', 'axlfi', 'crypto', 'darkpool'.
+                     Any other value is treated as "no key required" and
+                     returns ``False`` so the fetcher hits the live path.
         """
         key_map = {
             "gexmetrix": self.gexmetrix_api_key,

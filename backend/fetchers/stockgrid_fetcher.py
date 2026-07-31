@@ -47,7 +47,9 @@ class StockGridFetcher(BaseFetcher):
             return await self._fetch_yfinance_slope()
         except Exception as e:
             self.logger.warning(f"StockGrid(yfinance) fetch failed: {e}, returning mock")
-            return self._generate_mock_data()
+            mock = self._generate_mock_data()
+            mock["_internal_mock"] = True
+            return mock
 
     def _mock_data(self) -> dict:
         """Return mock StockGrid data."""

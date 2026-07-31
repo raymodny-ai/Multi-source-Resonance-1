@@ -38,7 +38,9 @@ class SqueezeMetricsFetcher(BaseFetcher):
             return await self._fetch_csv()
         except Exception as e:
             self.logger.warning(f"SqueezeMetrics fetch failed: {e}, returning mock")
-            return self._generate_mock_data()
+            mock = self._generate_mock_data()
+            mock["_internal_mock"] = True
+            return mock
 
     def _mock_data(self) -> dict:
         """Return mock SqueezeMetrics data."""

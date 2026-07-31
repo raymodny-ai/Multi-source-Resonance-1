@@ -16,6 +16,7 @@ class EventType:
     DATA_FETCH_START = "data.fetch.start"
     DATA_FETCH_COMPLETE = "data.fetch.complete"
     DATA_FETCH_ERROR = "data.fetch.error"
+    DATA_MOCK_FALLBACK = "data.mock.fallback"
 
     # ── Analysis events ───────────────────────────────────────────────────────
     ANALYSIS_START = "analysis.start"
@@ -29,6 +30,7 @@ class EventType:
     # ── Scoring events ────────────────────────────────────────────────────────
     SCORING_START = "scoring.start"
     SCORING_COMPLETE = "scoring.complete"
+    PIPELINE_CYCLE_COMPLETE = "pipeline.cycle.complete"
 
     # ── System events ─────────────────────────────────────────────────────────
     SYSTEM_START = "system.start"

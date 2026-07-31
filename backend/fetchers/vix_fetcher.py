@@ -95,7 +95,9 @@ class VIXFetcher(BaseFetcher):
             )
         except Exception as exc:
             self.logger.warning(f"[VIX] FRED fetch failed: {exc}, using mock fallback")
-            return self._mock_data()
+            mock = self._mock_data()
+            mock["_internal_mock"] = True
+            return mock
 
     async def _fetch_fred_vix(self) -> tuple[Optional[float], Optional[float], list]:
         """Fetch last 30 days VIXCLS + VXVCLS from FRED.
@@ -187,7 +189,6 @@ class VIXFetcher(BaseFetcher):
             "panic_premium": round(panic_premium, 4),
             "regime": regime,
             "history": history,
-            "_meta": {"fetched_at": now_iso, "source": "FRED"},
         }
 
     def _mock_data(self) -> dict:
@@ -207,7 +208,8 @@ class VIXFetcher(BaseFetcher):
             vx_3m=vx_3m,
             history=history,
         )
-        payload["_meta"]["source"] = "mock"
+        # Mark the mock payload so the wrapping layer sets is_mock=True.
+        payload["_internal_mock"] = True
         return payload
 
     def _validate_data(self, data: dict) -> bool:

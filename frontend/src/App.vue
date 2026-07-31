@@ -8,6 +8,7 @@
       </main>
       <Footer />
     </div>
+    <ErrorToast />
   </div>
 </template>
 
@@ -15,6 +16,7 @@
 import Sidebar from '@/components/layout/Sidebar.vue'
 import Header from '@/components/layout/Header.vue'
 import Footer from '@/components/layout/Footer.vue'
+import ErrorToast from '@/components/common/ErrorToast.vue'
 </script>
 
 <style>

@@ -175,9 +175,24 @@ class Pipeline:
         scoring_result = await self._phase3_score(analysis_results)
 
         # ── Persist results ────────────────────────────────────────────────────
-        await self._persist(collected_data, analysis_results, scoring_result)
+        write_results = await self._persist(collected_data, analysis_results, scoring_result)
 
-        return {
+        # Per-source breakdown consumed by API/UI for status & mock-source surfacing.
+        source_details = [
+            {
+                "source": r.source,
+                "tier": r.tier,
+                "success": r.success,
+                "is_mock": r.is_mock,
+                "mock_reason": r.mock_reason,
+                "retry_count": r.retry_count,
+                "elapsed_sec": r.elapsed_sec,
+                "error": r.error,
+            }
+            for r in exec_report.results.values()
+        ]
+
+        result = {
             "cycle_ts": cycle_ts,
             "cycle_number": self._cycle_count,
             "total_elapsed_sec": exec_report.total_elapsed_sec,
@@ -188,7 +203,22 @@ class Pipeline:
             "tier2_elapsed_sec": exec_report.tier2_elapsed_sec,
             "analysis_count": len(analysis_results),
             "scoring": scoring_result,
+            "source_details": source_details,
+            "write_results": write_results,
         }
+
+        await self.event_bus.publish(
+            EventType.PIPELINE_CYCLE_COMPLETE,
+            {
+                "cycle_ts": cycle_ts,
+                "cycle_number": self._cycle_count,
+                "success_count": exec_report.success_count,
+                "error_count": exec_report.error_count,
+                "mock_count": exec_report.mock_count,
+            },
+        )
+
+        return result
 
     # ── Phase 1: Collect ───────────────────────────────────────────────────────
 
@@ -405,12 +435,13 @@ class Pipeline:
         collected_data: dict[str, dict],
         analysis_results: dict[str, dict],
         scoring_result: dict,
-    ) -> None:
-        """Write all results to the database."""
+    ) -> dict[str, dict]:
+        """Write all results to the database. Returns write results keyed by source."""
+        write_results: dict[str, dict] = {}
         try:
             # Write fetcher data
-            written = await self.writer.write_fetch_results(collected_data)
-            logger.debug(f"[Persist] Fetcher data written: {written}")
+            write_results = await self.writer.write_fetch_results(collected_data)
+            logger.debug(f"[Persist] Fetcher data written: {write_results}")
 
             # Write validation audit entries (resolve 0-row anomaly)
             for source in collected_data:
@@ -446,6 +477,8 @@ class Pipeline:
 
         except Exception as exc:
             logger.error(f"[Persist] Persistence failed: {exc}", exc_info=True)
+
+        return write_results
 
     # ── Registration API ───────────────────────────────────────────────────────
 

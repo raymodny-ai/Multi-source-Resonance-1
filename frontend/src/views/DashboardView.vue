@@ -1,12 +1,42 @@
 <template>
   <div class="dashboard-view">
+    <!-- Global banners: mock data + WS + dimension errors -->
+    <MockDataBanner
+      v-if="mockBannerVisible"
+      :sources="mockBannerSources"
+      title="当前数据源包含模拟值"
+      :dismissible="true"
+      @update:model-value="mockBannerVisible = $event"
+    />
+
+    <div v-if="hasDimensionErrors" class="error-banner" role="alert">
+      <span class="error-banner-icon">❗</span>
+      <div class="error-banner-text">
+        <strong>部分维度获取失败</strong>
+        <span class="error-banner-detail">
+          {{ dimensionErrorSummary }}
+        </span>
+      </div>
+      <button class="error-banner-close" @click="clearDimensionErrors" type="button">
+        ×
+      </button>
+    </div>
+
+    <div v-if="!wsConnected" class="ws-warning-banner" role="status">
+      <span class="ws-warning-icon">⚠</span>
+      <div class="ws-warning-text">
+        <strong>实时连接已断开</strong>
+        <span class="ws-warning-detail">正在尝试重连，数据展示可能不完整</span>
+      </div>
+    </div>
+
     <!-- DEBUG: 临时浮动面板 — 手动触发 fetchDashboard + 显示 ws 状态 -->
     <div class="msr-debug-panel">
       <button class="msr-debug-btn" @click="manualRefresh" :disabled="refreshing">
         {{ refreshing ? '⟳ 拉取中...' : '🔄 手动刷新数据' }}
       </button>
       <div class="msr-debug-status">
-        <div>WS: {{ wsState }}</div>
+        <div>WS: {{ wsStateLabel }}</div>
         <div>Cycle: {{ pipelineCycle }}</div>
         <div>Last fetch: {{ lastFetchAgo }}</div>
         <div>GEX ts: {{ gexTimestamp }}</div>
@@ -60,15 +90,24 @@
           </div>
           <div class="summary-item">
             <span class="summary-label">VIX Spot</span>
-            <span class="summary-value">{{ marketStore.vixData?.vix_spot?.toFixed(2) ?? '—' }}</span>
+            <span
+              class="summary-value"
+              :class="valueClass(marketStore.vixData?.vix_spot)"
+            >{{ marketStore.vixData?.vix_spot?.toFixed(2) ?? '—' }}</span>
           </div>
           <div class="summary-item">
             <span class="summary-label">BTC Funding</span>
-            <span class="summary-value">{{ formatFunding(marketStore.cryptoData?.btc_funding_rate) }}</span>
+            <span
+              class="summary-value"
+              :class="valueClass(marketStore.cryptoData?.btc_funding_rate)"
+            >{{ formatFunding(marketStore.cryptoData?.btc_funding_rate) }}</span>
           </div>
           <div class="summary-item">
             <span class="summary-label">DIX Value</span>
-            <span class="summary-value">{{ marketStore.darkpoolData?.dix_value?.toFixed(2) ?? '—' }}</span>
+            <span
+              class="summary-value"
+              :class="valueClass(marketStore.darkpoolData?.dix_value)"
+            >{{ marketStore.darkpoolData?.dix_value?.toFixed(2) ?? '—' }}</span>
           </div>
         </div>
       </div>
@@ -85,7 +124,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, computed, ref } from 'vue'
+import { onMounted, onUnmounted, computed, ref, watch } from 'vue'
 import { useMarketStore } from '@/stores/market'
 import { useSignalStore } from '@/stores/signals'
 import { useSystemStore } from '@/stores/system'
@@ -93,6 +132,7 @@ import wsClient from '@/api/websocket'
 import ScoreOverview from '@/components/dashboard/ScoreOverview.vue'
 import SignalCard from '@/components/dashboard/SignalCard.vue'
 import SourceStatusCard from '@/components/dashboard/SourceStatusCard.vue'
+import MockDataBanner from '@/components/common/MockDataBanner.vue'
 import RadarChart from '@/components/charts/RadarChart.vue'
 import GaugeChart from '@/components/charts/GaugeChart.vue'
 import SignalTimeline from '@/components/signals/SignalTimeline.vue'
@@ -104,6 +144,26 @@ const systemStore = useSystemStore()
 const gexNet = computed(() => marketStore.dashboardData?.gex?.net_gex)
 const gexClass = computed(() => (gexNet.value && gexNet.value > 0) ? 'text-green' : 'text-red')
 
+// Banner visibility: combined mock-source state.
+const mockBannerVisible = ref(true)
+const mockBannerSources = computed(() => Object.values(marketStore.mockSources).map((m) => m.source))
+// Hide banner if no mock sources are currently reported.
+const showMockBanner = computed(() => mockBannerSources.value.length > 0)
+
+// Per-dimension fetch failure surfacing.
+const hasDimensionErrors = computed(() => Object.keys(marketStore.dimensionErrors).length > 0)
+const dimensionErrorSummary = computed(() =>
+  Object.values(marketStore.dimensionErrors)
+    .map((d) => `${d.dimension.toUpperCase()}: ${d.message}`)
+    .join('；'),
+)
+function clearDimensionErrors() {
+  marketStore.dimensionErrors = {}
+}
+
+// WS connection state — use the new wsClient.isConnected getter instead of poking `ws`.
+const wsConnected = computed(() => wsClient.isConnected)
+
 // ─── DEBUG: 手动刷新 + 状态显示 ──────────────────────────────
 const refreshing = ref(false)
 const showDebugLog = ref(false)
@@ -113,6 +173,12 @@ const pipelineCycle = ref('?')
 const lastFetchAgo = ref('?')
 const gexTimestamp = ref('?')
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let debugWsStateHandler: ((s: { connected: boolean }) => void) | null = null
+
+const wsStateLabel = computed(() => {
+  if (wsConnected.value) return 'OPEN'
+  return wsState.value
+})
 
 function toggleDebugLog() {
   showDebugLog.value = !showDebugLog.value
@@ -144,13 +210,8 @@ async function manualRefresh() {
 }
 
 async function pollStatus() {
-  // ws state
-  if (wsClient && (wsClient as any).ws) {
-    const rs = (wsClient as any).ws.readyState
-    wsState.value = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][rs] || `state=${rs}`
-  } else {
-    wsState.value = 'no ws'
-  }
+  // ws state — use the public getter instead of poking readyState.
+  wsState.value = wsClient.connectionState
   // pipeline cycle + last fetch ago
   try {
     const r = await fetch('/api/system/pipeline-status')
@@ -170,19 +231,41 @@ async function pollStatus() {
   gexTimestamp.value = gd?.gex?.timestamp ?? 'null'
 }
 
+function valueClass(v: number | null | undefined): string {
+  // Distinguish "no data" (null/undefined) from "fetch failed" via store.
+  if (v == null) {
+    return Object.keys(marketStore.dimensionErrors).length ? 'value-error' : ''
+  }
+  return ''
+}
+
 onMounted(() => {
   marketStore.fetchDashboard()
   marketStore.fetchAllDimensions()
   signalStore.fetchCurrentSignals()
   signalStore.fetchSignalHistory()
   systemStore.fetchSourceStatus()
+  // Re-show the mock banner when fresh mock data arrives.
+  watch(mockBannerSources, (val) => {
+    if (val.length) mockBannerVisible.value = true
+  })
   pollStatus()
   pollTimer = setInterval(pollStatus, 5000)
+  debugWsStateHandler = (s) => {
+    wsState.value = s.connected ? 'OPEN' : 'CLOSED'
+  }
+  wsClient.onConnectionStateChange(debugWsStateHandler)
 })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (debugWsStateHandler) {
+    wsClient.offConnectionStateChange(debugWsStateHandler)
+    debugWsStateHandler = null
+  }
 })
+
+// `watch` is imported at the top of this file.
 
 function formatGEX(val?: number): string {
   if (val == null) return '—'
@@ -302,4 +385,51 @@ function formatFunding(val?: number): string {
   .dashboard-grid { grid-template-columns: repeat(2, 1fr); }
   .grid-sources { grid-column: 1 / -1; }
 }
+
+/* Banner styles */
+.mock-warning-banner,
+.error-banner,
+.ws-warning-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: var(--spacing-md);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.mock-warning-banner {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  color: var(--accent-amber);
+}
+.error-banner {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  color: var(--accent-red);
+}
+.error-banner-icon { font-size: 16px; line-height: 1; }
+.error-banner-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.error-banner-detail { font-size: 12px; color: var(--text-secondary); font-weight: 400; }
+.error-banner-close {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.error-banner-close:hover { background: rgba(239, 68, 68, 0.15); }
+.ws-warning-banner {
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.5);
+  color: var(--accent-indigo);
+}
+.ws-warning-icon { font-size: 16px; line-height: 1; }
+.ws-warning-text { display: flex; flex-direction: column; gap: 2px; }
+.ws-warning-detail { font-size: 12px; color: var(--text-secondary); font-weight: 400; }
+
+.value-error { color: var(--accent-red) !important; }
 </style>

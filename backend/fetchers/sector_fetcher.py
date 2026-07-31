@@ -46,7 +46,9 @@ class SectorFetcher(BaseFetcher):
 
     async def fetch(self) -> dict:
         """Fetch sector rotation data."""
-        return self._generate_mock_data()
+        mock = self._generate_mock_data()
+        mock["_internal_mock"] = True
+        return mock
 
     def _mock_data(self) -> dict:
         """Return mock sector rotation data."""

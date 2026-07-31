@@ -39,7 +39,9 @@ class CCDataFetcher(BaseFetcher):
             return await self._fetch_ccdata()
         except Exception as e:
             self.logger.warning(f"CCData fetch failed: {e}, returning mock")
-            return self._generate_mock_data()
+            mock = self._generate_mock_data()
+            mock["_internal_mock"] = True
+            return mock
 
     def _mock_data(self) -> dict:
         """Return mock crypto derivatives data."""

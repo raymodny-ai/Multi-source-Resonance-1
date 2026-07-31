@@ -57,6 +57,37 @@ class SourceStatus(BaseModel):
     availability_pct: float = Field(100.0, ge=0, le=100)
     last_error: Optional[str] = None
     last_success_at: Optional[datetime] = None
+    # Mock-fallback visibility (added with DATA_FETCH_FIX_TODO)
+    is_mock: bool = Field(False, description="Last fetch fell back to mock data")
+    mock_reason: Optional[str] = Field(
+        None,
+        description="Why mock was used: api_key_absent | fetch_failed_fallback | internal_fallback",
+    )
+    retry_count: int = Field(0, ge=0)
+
+
+class CollectionSourceDetail(BaseModel):
+    """Per-source detail row for the latest pipeline cycle."""
+    source: str
+    tier: int = Field(2, ge=1, le=3)
+    success: bool
+    is_mock: bool = False
+    mock_reason: Optional[str] = None
+    retry_count: int = 0
+    elapsed_sec: float = 0.0
+    error: Optional[str] = None
+
+
+class CollectionReport(BaseModel):
+    """Aggregate report returned by the manual collection endpoint."""
+    ok: bool = True
+    collected_at: Optional[str] = None
+    total_elapsed_sec: Optional[float] = None
+    success_count: int = 0
+    error_count: int = 0
+    mock_count: int = 0
+    sources: list[CollectionSourceDetail] = Field(default_factory=list)
+    write_results: dict[str, dict] = Field(default_factory=dict)
 
 
 # ── System Status ─────────────────────────────────────────────────────────────

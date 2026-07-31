@@ -67,14 +67,18 @@ class OptionsChainGreeksFetcher(BaseFetcher):
             import yfinance as yf
         except ImportError:
             self.logger.error("[options_greeks] yfinance not installed")
-            return self._mock_data()
+            mock = self._mock_data()
+            mock["_internal_mock"] = True
+            return mock
 
         try:
             from py_vollib.black_scholes import black_scholes
             from py_vollib.black_scholes.greeks.analytical import delta, gamma, vega, theta
         except ImportError:
             self.logger.error("[options_greeks] py_vollib not installed")
-            return self._mock_data()
+            mock = self._mock_data()
+            mock["_internal_mock"] = True
+            return mock
 
         now = datetime.now(timezone.utc)
         per_symbol: dict[str, Any] = {}
@@ -130,17 +134,13 @@ class OptionsChainGreeksFetcher(BaseFetcher):
                 continue
 
         if not per_symbol:
-            return self._mock_data()
+            mock = self._mock_data()
+            mock["_internal_mock"] = True
+            return mock
 
         return {
             "fetch_timestamp": now.isoformat(),
             "symbols": per_symbol,
-            "_meta": {
-                "source": "options_greeks",
-                "is_mock": False,
-                "fetched_at": now.isoformat(),
-                "error": None,
-            },
         }
 
     def _pick_expiry(self, expiries: list[str]) -> str | None:
@@ -235,10 +235,4 @@ class OptionsChainGreeksFetcher(BaseFetcher):
         return {
             "fetch_timestamp": datetime.now(timezone.utc).isoformat(),
             "symbols": {},
-            "_meta": {
-                "source": "options_greeks",
-                "is_mock": True,
-                "fetched_at": datetime.now(timezone.utc).isoformat(),
-                "error": "yfinance or py_vollib unavailable",
-            },
         }

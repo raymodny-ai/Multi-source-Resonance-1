@@ -69,7 +69,9 @@ class YFinanceFetcher(BaseFetcher):
             import yfinance as yf
         except ImportError:
             self.logger.error("[yfinance] yfinance library not installed")
-            return self._mock_data()
+            mock = self._mock_data()
+            mock["_internal_mock"] = True
+            return mock
 
         now = datetime.now(timezone.utc)
         prices = {}

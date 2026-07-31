@@ -1,5 +1,9 @@
 import client from './client'
 
+export interface DashboardMeta {
+  mock_sources: string[]
+}
+
 export interface DashboardData {
   fetched_at: string
   gex: Record<string, any> | null
@@ -7,6 +11,7 @@ export interface DashboardData {
   crypto: Record<string, any> | null
   darkpool: Record<string, any> | null
   signal: Record<string, any> | null
+  _meta?: DashboardMeta | null
 }
 
 export interface DashboardScores {

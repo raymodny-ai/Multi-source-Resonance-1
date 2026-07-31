@@ -28,30 +28,30 @@ class DataWriter:
 
     # ── Fetch result persistence ───────────────────────────────────────────────
 
-    async def write_fetch_results(self, results: dict[str, dict]) -> dict[str, int]:
+    async def write_fetch_results(self, results: dict[str, dict]) -> dict[str, dict]:
         """Write collected fetcher data to the appropriate domain tables.
 
         Args:
             results: Mapping of source_name -> fetched data dict.
 
         Returns:
-            Dict mapping source_name -> number of rows written.
+            Dict mapping source_name -> {"count": int, "error": Optional[str]}.
         """
-        written: dict[str, int] = {}
+        written: dict[str, dict] = {}
         now = datetime.now(timezone.utc).isoformat()
 
         async with get_db() as conn:
             for source, data in results.items():
                 try:
                     count = await self._write_source_data(conn, source, data, now)
-                    written[source] = count
+                    written[source] = {"count": count, "error": None}
                     logger.debug(f"Written {count} row(s) for source '{source}'")
                 except Exception as exc:
                     logger.error(
                         f"Failed to write data for '{source}': {exc}",
                         exc_info=True,
                     )
-                    written[source] = 0
+                    written[source] = {"count": 0, "error": str(exc)}
 
         return written
 

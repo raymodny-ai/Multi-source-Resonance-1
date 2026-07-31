@@ -30,13 +30,19 @@ TIER_3_SOURCES: frozenset[str] = frozenset({"axlfi"})
 
 @dataclass
 class FetchResult:
-    """Result envelope for a single fetcher execution."""
+    """Result envelope for a single fetcher execution.
+
+    ``success`` here means "data is usable downstream" — both real fetches
+    and accepted mock fallbacks qualify. Distinguish via ``is_mock``.
+    """
     source: str
     data: dict = field(default_factory=dict)
     elapsed_sec: float = 0.0
     success: bool = True
     error: Optional[str] = None
     is_mock: bool = False
+    mock_reason: Optional[str] = None
+    retry_count: int = 0
     tier: int = 2
 
 
@@ -148,8 +154,12 @@ class ConcurrentExecutor:
             asyncio.create_task(self._run_tier3_background(tier3, report))
 
         report.total_elapsed_sec = round(time.monotonic() - cycle_start, 3)
-        report.success_count = sum(1 for r in report.results.values() if r.success)
-        report.error_count = sum(1 for r in report.results.values() if not r.success)
+        report.success_count = sum(
+            1 for r in report.results.values() if r.success and not r.is_mock
+        )
+        report.error_count = sum(
+            1 for r in report.results.values() if not r.success or bool(r.error)
+        )
         report.mock_count = sum(1 for r in report.results.values() if r.is_mock)
 
         return report
@@ -211,16 +221,23 @@ class ConcurrentExecutor:
                 timeout=self._per_fetcher_timeout,
             )
             elapsed = round(time.monotonic() - start, 3)
-            is_mock = data.get("_meta", {}).get("is_mock", False)
-            error = data.get("_meta", {}).get("error")
+            meta = data.get("_meta", {}) if isinstance(data, dict) else {}
+            is_mock = bool(meta.get("is_mock", False))
+            error = meta.get("error")
+            mock_reason = meta.get("mock_reason")
+            retry_count = int(meta.get("retry_count", 0))
 
             return FetchResult(
                 source=source,
                 data=data,
                 elapsed_sec=elapsed,
+                # success = data is usable (real or accepted mock); error indicates
+                # a hard failure with no usable payload.
                 success=not bool(error),
                 error=error,
                 is_mock=is_mock,
+                mock_reason=mock_reason,
+                retry_count=retry_count,
                 tier=tier,
             )
 
@@ -249,7 +266,11 @@ class ConcurrentExecutor:
     # ── Internal: event publishing ─────────────────────────────────────────────
 
     async def _publish_fetch_result(self, result: FetchResult) -> None:
-        """Publish the appropriate event for a fetch result."""
+        """Publish the appropriate event for a fetch result.
+
+        Mock fallbacks get an additional ``DATA_MOCK_FALLBACK`` event so
+        listeners (and the frontend) can surface degraded source visibility.
+        """
         if result.success:
             await self.event_bus.publish(
                 EventType.DATA_FETCH_COMPLETE,
@@ -257,10 +278,22 @@ class ConcurrentExecutor:
                     "source": result.source,
                     "elapsed_sec": result.elapsed_sec,
                     "is_mock": result.is_mock,
+                    "mock_reason": result.mock_reason,
+                    "retry_count": result.retry_count,
                     "tier": result.tier,
                     "data": result.data,
                 },
             )
+            if result.is_mock:
+                await self.event_bus.publish(
+                    EventType.DATA_MOCK_FALLBACK,
+                    {
+                        "source": result.source,
+                        "mock_reason": result.mock_reason,
+                        "retry_count": result.retry_count,
+                        "tier": result.tier,
+                    },
+                )
         else:
             await self.event_bus.publish(
                 EventType.DATA_FETCH_ERROR,

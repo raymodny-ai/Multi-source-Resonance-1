@@ -55,7 +55,9 @@ class CryptoFetcher(BaseFetcher):
 
         # No key for fallback — return mock
         self.logger.warning("CCData key missing, returning mock data")
-        return self._generate_mock_data()
+        mock = self._generate_mock_data()
+        mock["_internal_mock"] = True
+        return mock
 
     def _mock_data(self) -> dict:
         """Return mock crypto derivatives data."""

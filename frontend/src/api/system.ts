@@ -20,11 +20,47 @@ export interface SourceStatus {
   last_data_ts: string | null
   total_rows: number | null
   age_minutes: number
+  last_error?: string | null
+  is_mock?: boolean
+  mock_reason?: string | null
+  retry_count?: number
 }
 
 export interface AutoPollingState {
   enabled: boolean
   interval_seconds: number
+}
+
+export interface CollectionSourceDetail {
+  source: string
+  tier: number
+  success: boolean
+  is_mock: boolean
+  mock_reason: string | null
+  retry_count: number
+  elapsed_sec: number
+  error: string | null
+}
+
+export interface CollectionReport {
+  ok: boolean
+  collected_at: string | null
+  total_elapsed_sec: number | null
+  success_count: number
+  error_count: number
+  mock_count: number
+  sources: CollectionSourceDetail[]
+  write_results: Record<string, { count: number; error: string | null }>
+}
+
+export interface CollectionDetailResponse {
+  cycle_ts: string | null
+  cycle_number: number
+  success_count: number
+  error_count: number
+  mock_count: number
+  sources: CollectionSourceDetail[]
+  write_results: Record<string, { count: number; error: string | null }>
 }
 
 export function getSystemStatus() {
@@ -48,5 +84,9 @@ export function setAutoPolling(enabled: boolean) {
 }
 
 export function triggerManualCollection() {
-  return client.post('/system/collect-manual')
+  return client.post<CollectionReport>('/system/collect-manual')
+}
+
+export function getCollectionDetail() {
+  return client.get<CollectionDetailResponse>('/system/collection-detail')
 }

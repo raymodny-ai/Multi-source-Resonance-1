@@ -35,7 +35,9 @@ class MacroFetcher(BaseFetcher):
             return await self._fetch_fred()
         except Exception as e:
             self.logger.warning(f"FRED fetch failed: {e}, returning mock")
-            return self._generate_mock_data()
+            mock = self._generate_mock_data()
+            mock["_internal_mock"] = True
+            return mock
 
     def _mock_data(self) -> dict:
         """Return mock macro data."""

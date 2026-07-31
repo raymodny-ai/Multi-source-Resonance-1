@@ -26,7 +26,9 @@ class FlowFetcher(BaseFetcher):
 
     async def fetch(self) -> dict:
         """Fetch money flow data."""
-        return self._generate_mock_data()
+        mock = self._generate_mock_data()
+        mock["_internal_mock"] = True
+        return mock
 
     def _mock_data(self) -> dict:
         """Return mock money flow data."""

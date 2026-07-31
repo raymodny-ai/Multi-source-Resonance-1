@@ -65,25 +65,47 @@ async def system_status(request: Request):
 
 @router.get("/source-status")
 async def source_status():
-    """Data source connectivity status from v_source_health view."""
+    """Data source connectivity status from v_source_health view.
+
+    The pipeline's last cycle report (when available) overlays ``is_mock``,
+    ``mock_reason`` and ``last_error`` so the UI can flag degraded sources.
+    """
     async with get_db() as db:
         cursor = await db.execute("SELECT * FROM v_source_health")
         rows = await cursor.fetchall()
         sources = [dict(r) for r in rows]
 
+    # Per-source overlay from the latest pipeline cycle, if any.
+    per_source_state: dict[str, dict] = {}
+    try:
+        from backend.main import app as _app  # local import to avoid cycles
+        pipeline = getattr(_app.state, "pipeline", None)
+        last_report = getattr(pipeline, "last_report", None) if pipeline else None
+        if last_report:
+            for detail in last_report.get("source_details", []) or []:
+                per_source_state[detail["source"].lower()] = detail
+    except Exception:
+        per_source_state = {}
+
     # Map to standard SourceStatus format
     result = []
     for src in sources:
+        name = src.get("source") or ""
         age_minutes = src.get("age_minutes") or 9999
         status = "online" if age_minutes < 1440 else ("degraded" if age_minutes < 4320 else "offline")
+        overlay = per_source_state.get(name.lower(), {})
         result.append({
-            "name": src.get("source"),
+            "name": name,
             "status": status,
             "method": "REST API",
             "availability_pct": round(max(0, 100 - (age_minutes / 1440 * 100)), 1) if age_minutes < 1440 else 0.0,
             "last_data_ts": src.get("last_data_ts"),
             "total_rows": src.get("total_rows"),
             "age_minutes": round(age_minutes, 1),
+            "last_error": overlay.get("error"),
+            "is_mock": bool(overlay.get("is_mock", False)),
+            "mock_reason": overlay.get("mock_reason"),
+            "retry_count": int(overlay.get("retry_count", 0) or 0),
         })
 
     return result
@@ -146,15 +168,39 @@ async def collect_manual(request: Request):
         report = await pipeline.run_cycle()
         add_system_log("INFO", f"Manual collection complete: {report.get('success_count')} sources", source="api")
 
+        source_details = report.get("source_details", []) or []
+        mock_count = report.get("mock_count", 0)
         return {
             "ok": True,
             "collected_at": report.get("cycle_ts"),
             "total_elapsed_sec": report.get("total_elapsed_sec"),
             "success_count": report.get("success_count"),
             "error_count": report.get("error_count"),
-            "sources": [],  # Detailed per-source breakdown if available
+            "mock_count": mock_count,
+            "sources": source_details,
+            "write_results": report.get("write_results", {}),
         }
     except Exception as e:
         logger.error(f"Manual collection failed: {e}", exc_info=True)
         add_system_log("ERROR", f"Manual collection failed: {e}", source="api")
         raise HTTPException(status_code=500, detail=f"Collection failed: {str(e)}")
+
+
+@router.get("/collection-detail")
+async def collection_detail(request: Request):
+    """Return per-source details from the most recent pipeline cycle.
+
+    Shape mirrors the ``source_details`` array published by the pipeline.
+    Returns an empty list if the pipeline has not completed a cycle yet.
+    """
+    pipeline = request.app.state.pipeline
+    last_report = getattr(pipeline, "last_report", None) or {}
+    return {
+        "cycle_ts": last_report.get("cycle_ts"),
+        "cycle_number": last_report.get("cycle_number", 0),
+        "success_count": last_report.get("success_count", 0),
+        "error_count": last_report.get("error_count", 0),
+        "mock_count": last_report.get("mock_count", 0),
+        "sources": last_report.get("source_details", []) or [],
+        "write_results": last_report.get("write_results", {}),
+    }

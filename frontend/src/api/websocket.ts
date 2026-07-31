@@ -2,18 +2,31 @@ export interface WSMessage {
   topic: string
   payload: Record<string, any>
   timestamp: string
+  /** Optional severity for the UI to colour-code toasts / banners. */
+  level?: 'info' | 'warning' | 'error' | 'success'
 }
 
 type WSHandler = (msg: WSMessage) => void
+type WSStateHandler = (state: { connected: boolean }) => void
 
 class WebSocketClient {
   private ws: WebSocket | null = null
   private handlers: Map<string, Set<WSHandler>> = new Map()
+  private stateHandlers: Set<WSStateHandler> = new Set()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectInterval = 3000
   private maxReconnectInterval = 30000
   private currentInterval = this.reconnectInterval
   private shouldReconnect = true
+  private _connectionState: 'idle' | 'connecting' | 'open' | 'closed' = 'idle'
+
+  get connectionState(): 'idle' | 'connecting' | 'open' | 'closed' {
+    return this._connectionState
+  }
+
+  get isConnected(): boolean {
+    return this._connectionState === 'open'
+  }
 
   connect() {
     if (this.ws?.readyState === WebSocket.OPEN) return
@@ -32,11 +45,15 @@ class WebSocketClient {
     const url = `${protocol}//${host}:${port}/ws`
 
     this.shouldReconnect = true
+    this._connectionState = 'connecting'
+    this.emitStatusChange()
     this.ws = new WebSocket(url)
 
     this.ws.onopen = () => {
       console.log('[WS] Connected')
       this.currentInterval = this.reconnectInterval
+      this._connectionState = 'open'
+      this.emitStatusChange()
     }
 
     this.ws.onmessage = (event) => {
@@ -50,6 +67,8 @@ class WebSocketClient {
 
     this.ws.onclose = () => {
       console.log('[WS] Disconnected')
+      this._connectionState = 'closed'
+      this.emitStatusChange()
       if (this.shouldReconnect) {
         this.scheduleReconnect()
       }
@@ -57,6 +76,8 @@ class WebSocketClient {
 
     this.ws.onerror = (error) => {
       console.error('[WS] Error:', error)
+      this._connectionState = 'closed'
+      this.emitStatusChange()
       this.ws?.close()
     }
   }
@@ -69,6 +90,8 @@ class WebSocketClient {
     }
     this.ws?.close()
     this.ws = null
+    this._connectionState = 'closed'
+    this.emitStatusChange()
   }
 
   subscribe(topic: string, handler: WSHandler) {
@@ -80,6 +103,16 @@ class WebSocketClient {
 
   unsubscribe(topic: string, handler: WSHandler) {
     this.handlers.get(topic)?.delete(handler)
+  }
+
+  onConnectionStateChange(handler: WSStateHandler) {
+    this.stateHandlers.add(handler)
+    // Fire once with current state so the subscriber is in sync.
+    handler({ connected: this.isConnected })
+  }
+
+  offConnectionStateChange(handler: WSStateHandler) {
+    this.stateHandlers.delete(handler)
   }
 
   send(data: Record<string, any>) {
@@ -104,8 +137,21 @@ class WebSocketClient {
     }, this.currentInterval)
     this.currentInterval = Math.min(this.currentInterval * 1.5, this.maxReconnectInterval)
   }
+
+  private emitStatusChange() {
+    const connected = this.isConnected
+    this.stateHandlers.forEach((h) => h({ connected }))
+    try {
+      window.dispatchEvent(
+        new CustomEvent('msr-ws-status', { detail: { connected } }),
+      )
+    } catch {
+      // best-effort
+    }
+  }
 }
 
 // Singleton instance
 export const wsClient = new WebSocketClient()
 export default wsClient
+

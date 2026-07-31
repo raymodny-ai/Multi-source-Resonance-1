@@ -24,6 +24,7 @@ export const useSignalStore = defineStore('signals', () => {
 
   // Actions
   async function fetchCurrentSignals() {
+    error.value = null
     try {
       const resp = await getSignalsCurrent()
       currentSignals.value = resp.data
@@ -34,6 +35,7 @@ export const useSignalStore = defineStore('signals', () => {
 
   async function fetchSignalHistory(offset = 0, limit = 50) {
     loading.value = true
+    error.value = null
     try {
       const resp = await getSignalsHistory(offset, limit)
       signalHistory.value = resp.data.items
@@ -46,6 +48,7 @@ export const useSignalStore = defineStore('signals', () => {
   }
 
   async function fetchLatestScores() {
+    error.value = null
     try {
       const resp = await getDashboardScores()
       latestScores.value = resp.data
@@ -55,6 +58,7 @@ export const useSignalStore = defineStore('signals', () => {
   }
 
   async function acknowledge(id: number) {
+    error.value = null
     try {
       await acknowledgeSignal(id)
       currentSignals.value = currentSignals.value.filter((s) => s.id !== id)

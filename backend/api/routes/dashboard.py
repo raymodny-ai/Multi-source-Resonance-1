@@ -63,6 +63,19 @@ async def dashboard_view():
         signal_row = await signal_cursor.fetchone()
         signal_data = dict(signal_row) if signal_row else None
 
+    # Aggregate the mock-source set across dimensions for the UI to surface.
+    mock_sources: set[str] = set()
+    for source_name, payload in (
+        ("gex", gex_data),
+        ("vix", vix_data),
+        ("crypto", crypto_data),
+        ("darkpool", darkpool_data),
+    ):
+        if payload and isinstance(payload, dict):
+            meta = payload.get("_meta") or {}
+            if meta.get("is_mock"):
+                mock_sources.add(source_name)
+
     return {
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "gex": gex_data,
@@ -70,6 +83,9 @@ async def dashboard_view():
         "crypto": crypto_data,
         "darkpool": darkpool_data,
         "signal": signal_data,
+        "_meta": {
+            "mock_sources": sorted(mock_sources),
+        },
     }
 
 
@@ -254,6 +270,10 @@ async def data_quality():
         "healthy_sources": healthy_sources,
         "quality_pct": round(healthy_sources / max(total_sources, 1) * 100, 1),
         "sources": sources,
+        "mock_sources": [
+            s.get("source") for s in sources
+            if (s.get("is_mock") or s.get("mock_reason"))
+        ],
     }
 
 

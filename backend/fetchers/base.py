@@ -122,7 +122,12 @@ class BaseFetcher(ABC):
         # If mock mode, return mock data immediately
         if self._is_mock_mode():
             self.logger.info(f"[{self.source_name}] API key absent — returning mock data")
-            return self._wrap_result(self._mock_data(), is_mock=True)
+            return self._wrap_result(
+                self._mock_data(),
+                is_mock=True,
+                mock_reason="api_key_absent",
+                retry_count=0,
+            )
 
         last_error: Optional[Exception] = None
         for attempt in range(max_retries):
@@ -132,11 +137,18 @@ class BaseFetcher(ABC):
                 )
                 data = await self.fetch()
 
-                # Validate the fetched data
+                # Internal fallback markers are transport metadata and must not leak downstream.
+                internal_mock = bool(data.pop("_internal_mock", False))
+                meta = data.get("_meta", {})
                 if not self._validate_data(data):
                     raise ValueError(f"[{self.source_name}] Data validation failed")
 
-                return self._wrap_result(data, is_mock=False)
+                return self._wrap_result(
+                    data,
+                    is_mock=internal_mock,
+                    mock_reason=meta.get("mock_reason") if internal_mock else None,
+                    retry_count=attempt + 1,
+                )
 
             except Exception as exc:
                 last_error = exc
@@ -153,7 +165,13 @@ class BaseFetcher(ABC):
             f"[{self.source_name}] All {max_retries} retries failed. "
             f"Last error: {last_error}. Falling back to mock data."
         )
-        return self._wrap_result(self._mock_data(), is_mock=True, error=str(last_error))
+        return self._wrap_result(
+            self._mock_data(),
+            is_mock=True,
+            mock_reason="fetch_failed_fallback",
+            retry_count=max_retries,
+            error=str(last_error),
+        )
 
     # ── Data validation ───────────────────────────────────────────────────────
 
@@ -249,6 +267,8 @@ class BaseFetcher(ABC):
         data: dict,
         is_mock: bool = False,
         error: Optional[str] = None,
+        mock_reason: Optional[str] = None,
+        retry_count: int = 0,
     ) -> dict:
         """Wrap fetch result with metadata.
 
@@ -265,5 +285,7 @@ class BaseFetcher(ABC):
             "is_mock": is_mock,
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "error": error,
+            "mock_reason": mock_reason,
+            "retry_count": retry_count,
         }
         return data
