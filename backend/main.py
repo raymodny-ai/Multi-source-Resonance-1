@@ -61,6 +61,16 @@ structlog.configure(
     logger_factory=structlog.PrintLoggerFactory(),
 )
 
+# 2026-07-31 fix: pipeline.py 用 logging.getLogger(__name__), 但 main.py 只配了 structlog.
+# standard logging 没有 handler, 所有 logging.info() 输出黑洞. 补一个 stdout handler.
+_log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
+if not logging.getLogger().handlers:
+    _h = logging.StreamHandler()
+    _h.setLevel(_log_level)
+    _h.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s"))
+    logging.getLogger().addHandler(_h)
+    logging.getLogger().setLevel(_log_level)
+
 logger = structlog.get_logger()
 
 # ── Application lifespan ──────────────────────────────────────────────────────

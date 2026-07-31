@@ -49,8 +49,12 @@ pkill -f 'backend.main' 2>/dev/null || true
 sleep 2
 
 # 重启
+# 注意: 不要用 `python -m backend.main` (会走 __main__ 分支 reload=True, 启 spawn 子进程, 日志被 multiprocessing pipe 吞掉)
+# 直接 uvicorn backend.main:app 走 app import 路径, 单进程, --reload=False
 cd "${WS}"
-PORT="${BACKEND_PORT}" nohup .venv/bin/python -m backend.main > "${WS}/logs/backend.log" 2>&1 < /dev/null &
+PORT="${BACKEND_PORT}" nohup .venv/bin/uvicorn backend.main:app \
+  --host 0.0.0.0 --port "${BACKEND_PORT}" --no-access-log \
+  > "${WS}/logs/backend.log" 2>&1 < /dev/null &
 NEW_PID=$!
 sleep 6
 

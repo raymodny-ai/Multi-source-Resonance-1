@@ -24,6 +24,13 @@ class CryptoFetcher(BaseFetcher):
     def _mock_mode_key(self) -> str:
         return "crypto"
 
+    # 2026-07-31: Hyperliquid 是公开数据源 (不需要 key),
+    # 但默认 is_mock_mode("crypto") 看 crypto_api_key (空) 返回 True → 永远 mock.
+    # 重写 _is_mock_mode 强制走真实路径 (跟 yfinance/SqueezeMetrics/CBOE 同档).
+    def _is_mock_mode(self) -> bool:
+        """Hyperliquid 是公开数据, 除非显式强制 mock 否则总走真实路径."""
+        return False
+
     # Hyperliquid public endpoints (no key needed)
     HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info"
 

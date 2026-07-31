@@ -63,11 +63,18 @@ class CBOEFetcher(BaseFetcher):
         """
         try:
             # Fetch market statistics
-            stats_response = await self._http_get(CBOE_MARKET_STATS_URL)
+            # 2026-07-31: CDN 403 是因为 httpx 默认 UA "MultiSourceResonance/3.1" 被 CBOE WAF 封。
+            # 加浏览器 UA + Accept 让它认成 curl/浏览器。
+            browser_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "application/json,text/plain,*/*",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+            stats_response = await self._http_get(CBOE_MARKET_STATS_URL, headers=browser_headers)
             stats_data = stats_response.json()
 
             # Fetch put/call ratios
-            pc_response = await self._http_get(CBOE_PC_RATIO_URL)
+            pc_response = await self._http_get(CBOE_PC_RATIO_URL, headers=browser_headers)
             pc_data = pc_response.json()
 
             # Parse the responses
