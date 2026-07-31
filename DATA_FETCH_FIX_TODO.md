@@ -2,7 +2,7 @@
 
 > 生成时间：2026-07-28 | 状态：**已完成**（2026-07-31）
 >
-> **完成度**：P0/P1/P2 全部落地；后端 179 单元/集成测试全部通过；前端 `vite build` 通过。
+> **完成度**：P0/P1/P2 全部落地；后端 179 单元/集成测试全部通过；前端 `npm run build`（vue-tsc 类型检查 + vite 构建）0 错误通过。
 
 ---
 
@@ -240,8 +240,7 @@
 
 ### 前端构建
 
-- `npx vite build` ✅ 通过（2.14s）
-- 已知 5 个预存类型错误：`VIXView.vue` (3) 与 `DarkpoolView.vue` (2) 中 `LineChart` 的 `data: (number | null)[]` 不匹配 `data: number[]`。**这些错误未在本轮改动中产生，图表代码未被修改**；后续可由前端 PR 单独修复（最简单的方式：把图表 component 的 `data: number[]` 改为 `data: (number | null)[]`）。
+- `npm run build`（`vue-tsc --noEmit` + `vite build`）✅ 通过（2.37s）—— 类型检查与产物构建均 0 错误。
 
 ### 端到端连通性
 
