@@ -27,9 +27,9 @@ const chartOption = computed(() => ({
   radar: {
     indicator: [
       { name: 'GEX', max: props.maxScore ?? 2.5 },
-      { name: 'VIX', max: props.maxScore ?? 1.5 },
-      { name: 'Crypto', max: props.maxScore ?? 2.0 },
-      { name: 'Darkpool', max: props.maxScore ?? 2.0 },
+      { name: 'VIX', max: props.maxScore ?? 2.5 },
+      { name: 'Crypto', max: props.maxScore ?? 2.5 },
+      { name: 'Darkpool', max: props.maxScore ?? 2.5 },
     ],
     shape: 'polygon',
     splitNumber: 4,
