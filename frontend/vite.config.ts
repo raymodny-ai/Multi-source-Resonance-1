@@ -1,9 +1,10 @@
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import { resolve } from 'path'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { resolve } from 'path';
 
+// MSR-1 v4.0 frontend — React 19 + Spark Design + Vite 6
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [react()],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -26,5 +27,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    target: 'es2022',
+    chunkSizeWarningLimit: 1500,
   },
-})
+});
