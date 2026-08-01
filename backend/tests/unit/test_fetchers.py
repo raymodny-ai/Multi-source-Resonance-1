@@ -304,16 +304,21 @@ class TestDarkpoolFetcher:
         client = MagicMock()
         client.get = AsyncMock(return_value=response)
         fetcher._get_client = AsyncMock(return_value=client)
+        # IMPL-SHORT-RATIO-001: short ratio fetched from free yfinance source.
+        # Mocked here so the test has no external network dependency.
+        async def _fake_short():
+            return 4.4
+        fetcher._fetch_short_ratio = _fake_short
 
         live = await fetcher._fetch_squeezemetrics()
         assert live["dix_value"] == 46.0
-        # Short Ratio has no free source — stays None (needs paid key).
-        assert live["chartexchange_short_ratio"] is None
+        assert live["chartexchange_short_ratio"] == 4.4
+        assert live["short_ratio_source"] == "yfinance"
+        assert live["short_ratio_signal"] is True  # 4.4 > 3.0
         # Slopes need >=3 price points; the 2-row fixture yields None.
         assert live["stockgrid_20d_slope"] is None
         assert live["stockgrid_60d_slope"] is None
-        # 2026-08-02: v_net/EMA/zero-cross are now computed from the real DIX
-        # series (DIX 46 -> v_net = (46-50)*20 = -80), not hardcoded None.
+        # v_net/EMA/zero-cross computed from the real DIX series
         assert live["v_net"] == -80.0
         assert live["ema_fast_5"] is not None
         assert live["ema_slow_20"] is not None

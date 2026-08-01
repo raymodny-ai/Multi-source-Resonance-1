@@ -6,7 +6,9 @@ Fallback: FINRA short interest data.
 Mock mode: returns synthetic dark pool metrics matching DarkpoolFlow model.
 """
 
+import asyncio
 import random
+import time
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
@@ -40,6 +42,54 @@ class DarkpoolFetcher(BaseFetcher):
         return "none"
 
     SQUEEZEMETRICS_CSV_URL = "https://squeezemetrics.com/monitor/static/DIX.csv"
+
+    # IMPL-SHORT-RATIO-001: free short-ratio universe (days-to-cover).
+    # SPY + high short-interest names. ETFs (SPY) often return None for
+    # shortRatio and get filtered out; the weighted mean survives either way.
+    SHORT_RATIO_SYMBOLS = ["SPY", "GME", "AMC", "NVDA", "TSLA"]
+    # short interest 半月更新一次 -> 24h 缓存避免每周期重复请求 yfinance
+    _SHORT_RATIO_CACHE: Optional[tuple[float, float]] = None  # (value, timestamp)
+    _SHORT_RATIO_CACHE_TTL = 86400
+
+    async def _fetch_short_ratio(self) -> Optional[float]:
+        """Mean days-to-cover across a basket of symbols (free yfinance source).
+
+        IMPL-SHORT-RATIO-001: populates the previously-always-None
+        chartexchange_short_ratio with a real, key-free, same-unit (回补天数)
+        proxy so darkpool_analyzer Signal 2 (Short Ratio Extreme) can fire.
+        Returns None when the basket is entirely unavailable (graceful degrade).
+        """
+        cached = self._SHORT_RATIO_CACHE
+        if cached and (time.time() - cached[1]) < self._SHORT_RATIO_CACHE_TTL:
+            return cached[0]
+
+        try:
+            import yfinance as yf
+        except ImportError:
+            return None
+
+        def _blocking_fetch() -> list[float]:
+            ratios: list[float] = []
+            for sym in self.SHORT_RATIO_SYMBOLS:
+                try:
+                    info = (yf.Ticker(sym).info or {})
+                    sr = info.get("shortRatio")  # days to cover
+                    if sr is not None and 0 < float(sr) < 100:  # 排除异常值
+                        ratios.append(float(sr))
+                except Exception:
+                    continue
+            return ratios
+
+        try:
+            ratios = await asyncio.to_thread(_blocking_fetch)
+        except Exception as e:
+            self.logger.debug(f"Short ratio fetch failed: {e}")
+            return None
+        if not ratios:
+            return None
+        result = round(sum(ratios) / len(ratios), 2)
+        self._SHORT_RATIO_CACHE = (result, time.time())
+        return result
 
     async def fetch(self) -> dict:
         """Fetch dark pool data with fallback chain."""
@@ -112,19 +162,22 @@ class DarkpoolFetcher(BaseFetcher):
         # live cycle repopulates the rich row instead of wiping it to None.
         derived = self._compute_derived(history, dix_value=dix_value)
         slopes = self._compute_spx_slopes(history)
+        # IMPL-SHORT-RATIO-001: real free short-ratio proxy (mean days-to-cover)
+        short_ratio = await self._fetch_short_ratio()
 
         return {
             "date": date.today().isoformat(),
             "dix_value": dix_value * 100 if dix_value is not None else None,  # scale to %
             "gex_value": gex_value,
             "spx_price": spx_price,
-            "chartexchange_short_ratio": None,  # requires paid ChartExchange key (no free source)
+            "chartexchange_short_ratio": short_ratio,
+            "short_ratio_source": "yfinance" if short_ratio is not None else None,
             "stockgrid_20d_slope": slopes["slope_20d"],
             "stockgrid_60d_slope": slopes["slope_60d"],
             "stockgrid_divergence": False,
             "dbmf_ma5_recovery": False,
             "dix_signal": derived["dix_signal"],
-            "short_ratio_signal": False,
+            "short_ratio_signal": short_ratio is not None and short_ratio > 3.0,
             "stockgrid_signal": False,
             "aggregated_signal": derived["aggregated_signal"],
             "v_net": derived["v_net"],

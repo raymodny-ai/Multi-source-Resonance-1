@@ -291,6 +291,7 @@ CREATE TABLE IF NOT EXISTS dark_pool_metrics (
     ema_slow_20                REAL,
     zero_cross_signal          TEXT,
     momentum_reversal_signal   TEXT,
+    short_ratio_source         TEXT,
     created_at                 DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at                 DATETIME DEFAULT CURRENT_TIMESTAMP,
     is_mock                    BOOLEAN DEFAULT 0,
@@ -647,6 +648,7 @@ async def init_db() -> None:
             "ALTER TABLE crypto_derivatives ADD COLUMN mock_reason TEXT",
             "ALTER TABLE dark_pool_metrics ADD COLUMN is_mock BOOLEAN DEFAULT 0",
             "ALTER TABLE dark_pool_metrics ADD COLUMN mock_reason TEXT",
+            "ALTER TABLE dark_pool_metrics ADD COLUMN short_ratio_source TEXT",
             "ALTER TABLE signal_alerts ADD COLUMN mock_sources TEXT DEFAULT NULL",
             "ALTER TABLE signal_alerts ADD COLUMN mock_count INTEGER DEFAULT 0",
             # Outcome tracking columns (legacy)

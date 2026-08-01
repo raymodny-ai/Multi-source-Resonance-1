@@ -257,9 +257,10 @@ class DataWriter:
                 stockgrid_divergence, dbmf_ma5_recovery,
                 dix_signal, short_ratio_signal, stockgrid_signal,
                 aggregated_signal, v_net, ema_fast_5, ema_slow_20,
-                zero_cross_signal, momentum_reversal_signal, updated_at,
+                zero_cross_signal, momentum_reversal_signal,
+                short_ratio_source, updated_at,
                 is_mock, mock_reason)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 today,
                 data.get("dix_value"),
@@ -277,6 +278,7 @@ class DataWriter:
                 data.get("ema_slow_20"),
                 data.get("zero_cross_signal"),
                 data.get("momentum_reversal_signal"),
+                data.get("short_ratio_source"),
                 now,
                 1 if is_mock else 0,
                 mock_reason,
