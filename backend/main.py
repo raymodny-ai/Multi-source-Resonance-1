@@ -84,6 +84,10 @@ async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle hook."""
     global _start_time
     _start_time = time.time()
+    # Also expose on app.state so routes (system.py/metrics.py) can read it —
+    # they previously read app.state._start_time which was never set (report M-03),
+    # making uptime always 0/undefined.
+    app.state._start_time = _start_time
 
     logger.info("Starting Multi-source Resonance v3.1", db_path=settings.db_path)
     await init_db()
@@ -264,9 +268,14 @@ app.include_router(ws_router)
 # ── System control endpoints (pipeline start/stop) ────────────────────────────
 
 
-@app.get("/api/system/start-collect", tags=["system"])
+@app.post("/api/system/start-collect", tags=["system"])
 async def start_collection(request: Request):
-    """Start the periodic data collection pipeline (reserved endpoint)."""
+    """Start the periodic data collection pipeline (reserved endpoint).
+
+    POST — protected by the global JWT write middleware (was GET, which
+    bypassed auth and allowed CSRF-style triggering). Frontend does not call
+    this; it is reserved for operator/CLI use with a valid access token.
+    """
     pipeline: Pipeline = request.app.state.pipeline
     if pipeline.is_running:
         return {"ok": False, "message": "Pipeline already running"}
@@ -274,9 +283,12 @@ async def start_collection(request: Request):
     return {"ok": True, "message": "Pipeline started"}
 
 
-@app.get("/api/system/stop-collect", tags=["system"])
+@app.post("/api/system/stop-collect", tags=["system"])
 async def stop_collection(request: Request):
-    """Stop the periodic data collection pipeline (reserved endpoint)."""
+    """Stop the periodic data collection pipeline (reserved endpoint).
+
+    POST — protected by the global JWT write middleware (was GET).
+    """
     pipeline: Pipeline = request.app.state.pipeline
     if not pipeline.is_running:
         return {"ok": False, "message": "Pipeline not running"}

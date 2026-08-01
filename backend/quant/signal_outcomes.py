@@ -7,6 +7,7 @@ A signal is considered a 'profit' if the forward return is positive,
 'loss' otherwise.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -71,16 +72,22 @@ class SignalOutcomeTracker:
         ).strftime("%Y-%m-%d")
 
         try:
-            ticker = yf.Ticker("^GSPC")
-            hist = ticker.history(start=start, end=end)
-            if hist.empty:
+            # yfinance is synchronous network I/O — run it in a worker thread so
+            # it does not block the async event loop (report H-04).
+            def _fetch_spx() -> dict:
+                ticker = yf.Ticker("^GSPC")
+                hist = ticker.history(start=start, end=end)
+                if hist.empty:
+                    return {}
+                return {
+                    d.strftime("%Y-%m-%d"): float(row["Close"])
+                    for d, row in hist.iterrows()
+                }
+
+            close_map: dict[str, float] = await asyncio.to_thread(_fetch_spx)
+            if not close_map:
                 logger.warning("yfinance returned no SPX data for outcome check")
                 return []
-            # Build a date -> close price map
-            close_map: dict[str, float] = {
-                d.strftime("%Y-%m-%d"): float(row["Close"])
-                for d, row in hist.iterrows()
-            }
         except Exception as e:
             logger.error(f"Failed to fetch SPX history for outcomes: {e}")
             return []

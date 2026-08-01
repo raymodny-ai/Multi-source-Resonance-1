@@ -69,12 +69,25 @@ async def get_connection() -> aiosqlite.Connection:
 
 
 def release_connection(conn: aiosqlite.Connection) -> None:
-    """Return a connection to the pool."""
+    """Return a connection to the pool and release the semaphore slot.
+
+    The semaphore is acquired in get_connection() but was never released here
+    (report M-01): after _POOL_SIZE acquisitions the pool semaphore stayed
+    exhausted, so every later get_db() would block forever — a deadlock/lock
+    leak. Releasing the slot here fixes it.
+    """
+    pool = _get_pool()
     if len(_connections) < _POOL_SIZE:
         _connections.append(conn)
     else:
         # Pool full, close the connection
         asyncio.create_task(conn.close())
+    # Always make room for another acquire — the slot belongs to this borrow.
+    try:
+        pool.release()
+    except ValueError:
+        # Pool released more than acquired (shouldn't happen) — ignore.
+        pass
     _get_pool().release()
 
 

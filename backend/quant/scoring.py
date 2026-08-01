@@ -47,8 +47,12 @@ def _get_adapter():
     if _adapter_instance is None:
         # Lazy import to avoid circular dependency (bayesian_weights imports scoring)
         from backend.quant.bayesian_weights import BayesianWeightAdapter
-        _adapter_instance = BayesianWeightAdapter()
-        logger.info("BayesianWeightAdapter initialised")
+        # Incremental single-outcome updates (pipeline feeds one evaluated outcome
+        # per cycle via _update_bayesian_weights). The class default min_outcomes=10
+        # would make every single-outcome update a no-op (report M-05) — set 1 so
+        # each evaluated outcome actually feeds the Beta-Binomial update.
+        _adapter_instance = BayesianWeightAdapter(min_outcomes=1)
+        logger.info("BayesianWeightAdapter initialised (min_outcomes=1, incremental)")
     return _adapter_instance
 
 
