@@ -3,7 +3,7 @@
  * 与 backend/api/routes/signals.py 一致：分页用 offset/limit；字段以 signal_alerts 表为准
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { acknowledgeSignal, getSignalsHistory } from '@/lib/api/signals';
+import { acknowledgeSignal, getBayesianWeights, getSignalsHistory } from '@/lib/api/signals';
 import type {
   PaginatedResponse,
   Signal,
@@ -91,4 +91,16 @@ export function useSignalFiltersState(initial: Partial<SignalFilters> = {}) {
     });
   const reset = () => setFilters({ ...defaultSignalFilters, ...initial });
   return { filters, setFilters, update, reset };
+}
+
+/** Adaptive Bayesian weight state + learning progress (IMPL-BAYESIAN-001 #4). */
+export function useBayesianWeights(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ['signals', 'bayesian-weights'],
+    queryFn: () => getBayesianWeights(),
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+    retry: 1,
+    enabled: options?.enabled ?? true,
+  });
 }

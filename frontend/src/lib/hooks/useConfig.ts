@@ -98,7 +98,10 @@ export function useResetWeights() {
   return useMutation({
     mutationFn: () => resetWeights(),
     onSuccess: () => {
+      // Invalidate both the legacy config route and the new observability
+      // endpoint so reset reflects everywhere (IMPL-BAYESIAN-001 #4).
       qc.invalidateQueries({ queryKey: ['config', 'weights'] });
+      qc.invalidateQueries({ queryKey: ['signals', 'bayesian-weights'] });
     },
   });
 }

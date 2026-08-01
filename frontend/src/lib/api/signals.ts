@@ -7,6 +7,33 @@
 import { get, post } from './client';
 import type { Signal, SignalLevelFilter, SignalOutcomeFilter, SignalHistoryBackend, PaginatedResponse } from './types';
 
+/** GET /api/signals/bayesian-weights — adaptive-weight observability (IMPL-BAYESIAN-001 #4). */
+export interface BayesianWeightState {
+  current_weights: Record<string, number>;
+  default_weights: Record<string, number>;
+  is_adapted: boolean;
+  update_count: number;
+  last_update: string | null;
+  decay_factor?: number;
+  min_outcomes?: number;
+  posterior_summary: Record<string, {
+    posterior_mean: number;
+    posterior_std: number;
+    credible_interval_95: [number, number];
+    current_weight: number;
+    prior_alpha: number;
+    prior_beta: number;
+    posterior_alpha: number;
+    posterior_beta: number;
+  }>;
+  weight_delta: Record<string, number>;
+  persisted_state: Record<string, unknown> | null;
+}
+
+export async function getBayesianWeights(): Promise<BayesianWeightState> {
+  return get<BayesianWeightState>('/api/signals/bayesian-weights');
+}
+
 export interface SignalHistoryParams {
   level?: SignalLevelFilter;
   outcome?: SignalOutcomeFilter;
