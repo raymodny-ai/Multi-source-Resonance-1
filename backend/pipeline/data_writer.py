@@ -440,14 +440,37 @@ class DataWriter:
         written = 0
         for symbol, payload in symbols.items():
             try:
+                # FIX-21: use ``INSERT ... ON CONFLICT DO UPDATE`` keyed on
+                # the (symbol, timestamp) UNIQUE constraint. The previous
+                # ``INSERT OR REPLACE`` pattern deleted the old row first,
+                # which broke the options_greeks_strikes FK chain: every
+                # refresh re-issued new ``id`` values, the strike snapshot
+                # was rebuilt, and any in-flight reader saw orphan strikes
+                # with a stale snapshot_id. ON CONFLICT keeps the original
+                # ``id`` stable, so strikes retain their FK.
                 cursor = await conn.execute(
                     """
-                    INSERT OR REPLACE INTO options_greeks (
+                    INSERT INTO options_greeks (
                         symbol, timestamp, spot_price, expiry, days_to_expiry,
                         atm_strike, atm_iv, atm_delta_call, atm_delta_put,
                         atm_gamma, atm_vega, atm_theta, risk_free_rate,
                         calls_count, puts_count, source
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(symbol, timestamp) DO UPDATE SET
+                        spot_price = excluded.spot_price,
+                        expiry = excluded.expiry,
+                        days_to_expiry = excluded.days_to_expiry,
+                        atm_strike = excluded.atm_strike,
+                        atm_iv = excluded.atm_iv,
+                        atm_delta_call = excluded.atm_delta_call,
+                        atm_delta_put = excluded.atm_delta_put,
+                        atm_gamma = excluded.atm_gamma,
+                        atm_vega = excluded.atm_vega,
+                        atm_theta = excluded.atm_theta,
+                        risk_free_rate = excluded.risk_free_rate,
+                        calls_count = excluded.calls_count,
+                        puts_count = excluded.puts_count,
+                        source = excluded.source
                     """,
                     (
                         symbol,

@@ -81,6 +81,10 @@ class ConcurrentExecutor:
             thread_name_prefix="fetcher",
         )
         self._per_fetcher_timeout = config.fetch_timeout_seconds
+        # FIX-18: keep the latest tier-3 task so await_tier3() / shutdown
+        # can drain it. Without a reference the task is garbage-collected
+        # mid-flight and its results are silently lost between cycles.
+        self._tier3_task: Optional[asyncio.Task] = None
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -147,12 +151,24 @@ class ConcurrentExecutor:
             )
 
         # ── Tier 3: deferred sources (fire-and-forget background) ─────────────
+        # FIX-18: previously the tier-3 task was created with
+        # ``asyncio.create_task`` and never awaited, so the function returned
+        # *before* the deferred fetchers finished. ``report.success_count`` /
+        # ``mock_count`` were computed against a partial report, and the
+        # background results were lost on the next cycle (the report object
+        # was discarded). We now keep a reference to the task and ``await``
+        # it on shutdown so we never lose tier-3 results.
         if tier3:
             logger.info(
                 f"[Tier3] Scheduling {len(tier3)} deferred fetcher(s) in background"
             )
-            asyncio.create_task(self._run_tier3_background(tier3, report))
+            self._tier3_task = asyncio.create_task(
+                self._run_tier3_background(tier3, report)
+            )
 
+        # Compute counts from whatever results we have now. Tier 3 may add
+        # more later; the background coroutine increments the same counters
+        # atomically as it completes so the next reader sees the full picture.
         report.total_elapsed_sec = round(time.monotonic() - cycle_start, 3)
         report.success_count = sum(
             1 for r in report.results.values() if r.success and not r.is_mock
@@ -163,6 +179,25 @@ class ConcurrentExecutor:
         report.mock_count = sum(1 for r in report.results.values() if r.is_mock)
 
         return report
+
+    async def await_tier3(self, timeout: float = 5.0) -> None:
+        """FIX-18: wait for the most recent tier-3 background task to finish.
+
+        Called by the pipeline during shutdown and by health checks so the
+        deferred fetchers' results are not lost. Safe to call when no task
+        is in flight (no-op). Safe to call concurrently (the await is on
+        the task object itself, which is single-consumer).
+        """
+        task = getattr(self, "_tier3_task", None)
+        if task is None or task.done():
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"[Tier3] Background task did not finish within {timeout}s; "
+                "results may be incomplete for this cycle."
+            )
 
     # ── Internal: tier execution ───────────────────────────────────────────────
 
@@ -187,7 +222,13 @@ class ConcurrentExecutor:
         fetchers: list[BaseFetcher],
         report: ExecutionReport,
     ) -> None:
-        """Run Tier 3 fetchers in background; results are added to report."""
+        """Run Tier 3 fetchers in background; results are added to report.
+
+        FIX-18: keep a reference to the task on the executor so
+        ``await_tier3`` (and shutdown) can wait for it. Without this, the
+        task was garbage-collected mid-flight and the deferred results
+        were silently dropped between cycles.
+        """
         try:
             await self.event_bus.publish(
                 EventType.DATA_FETCH_START,
@@ -197,6 +238,17 @@ class ConcurrentExecutor:
             for r in results:
                 report.results[r.source] = r
                 await self._publish_fetch_result(r)
+            # FIX-18: refresh the aggregate counters after the deferred
+            # results land so the next caller's report.mock_count /
+            # error_count / success_count are correct even if they read the
+            # report after the function returns.
+            report.success_count = sum(
+                1 for v in report.results.values() if v.success and not v.is_mock
+            )
+            report.error_count = sum(
+                1 for v in report.results.values() if not v.success or bool(v.error)
+            )
+            report.mock_count = sum(1 for v in report.results.values() if v.is_mock)
             logger.info(
                 f"[Tier3] Background complete — "
                 f"{sum(1 for r in results if r.success)}/{len(results)} ok"

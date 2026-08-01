@@ -131,6 +131,12 @@ class Pipeline:
         """Stop the pipeline loop gracefully."""
         logger.info("Stopping pipeline...")
         self._running = False
+        # FIX-18: drain the in-flight tier-3 background task so we don't
+        # lose the deferred fetchers' results mid-shutdown.
+        try:
+            await self.executor.await_tier3(timeout=10.0)
+        except Exception as exc:
+            logger.warning(f"Pipeline.stop: tier-3 drain failed: {exc}")
         if self._task and not self._task.done():
             self._task.cancel()
             try:

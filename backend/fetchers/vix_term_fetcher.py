@@ -3,8 +3,18 @@ VIX term structure data fetcher.
 
 Collects VIX spot, VX1 (1-month), VX2 (2-month) futures, term structure
 ratio and state (contango / backwardation / flat).
-Primary source: CBOE public CDN (free, no key).
-Mock mode: returns synthetic VIX term structure data matching VIXSnapshot model.
+Primary source: CBOE public CDN (free, no key), with FRED VXVCLS as the
+3-month implied-vol proxy.
+Mock mode: returns synthetic VIX term structure data with the same
+schema as the real path, so downstream code never branches on shape.
+
+FIX-22: the previous version used two different regime taxonomies
+(high_vol/elevated/normal in the real path, none in mock) and a few
+fields were silently missing on mock. The schema column
+``vix_term_structure.regime`` is documented as
+``low | normal | elevated | panic`` and the fetcher now uses the same
+labels for both paths and tags every result with ``data_source`` +
+``is_mock`` so the UI can flag degraded rows.
 """
 
 import random
@@ -14,8 +24,23 @@ from typing import Any
 from backend.fetchers.base import BaseFetcher
 
 
+def _regime_from_spot(vix_spot: float) -> str:
+    """Map a VIX spot value to a regime label.
+
+    FIX-22: aligned with the ``vix_term_structure.regime`` schema:
+        low (<15) | normal (15-25) | elevated (25-35) | panic (>35)
+    """
+    if vix_spot < 15:
+        return "low"
+    if vix_spot < 25:
+        return "normal"
+    if vix_spot < 35:
+        return "elevated"
+    return "panic"
+
+
 class VIXTermFetcher(BaseFetcher):
-    """Fetches VIX term structure data from CBOE."""
+    """Fetches VIX term structure data from CBOE / FRED."""
 
     @property
     def source_name(self) -> str:
@@ -23,7 +48,7 @@ class VIXTermFetcher(BaseFetcher):
 
     @property
     def _mock_mode_key(self) -> str:
-        return ""  # CBOE public data is free
+        return "gexmetrix"  # public APIs — no key needed
 
     # ── CBOE public CSV sources (replaces the retired daily_market_statistics JSON)
     #    All return HTTP 200 with the default client UA.
@@ -35,20 +60,34 @@ class VIXTermFetcher(BaseFetcher):
     CBOE_VX2_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/VX2_History.csv"
 
     async def fetch(self) -> dict:
-        """Fetch VIX term structure data."""
+        """Fetch VIX term structure data, tagging the data source.
+
+        FIX-22: the real path now sets ``data_source="cboe_fred"`` and
+        the mock fallback sets ``data_source="mock"`` and
+        ``_internal_mock=True`` so the data writer can persist the mock
+        marker to the DB column.
+        """
         try:
-            return await self._fetch_cboe()
+            data = await self._fetch_cboe()
+            if data is not None:
+                data["data_source"] = "cboe_fred"
+                return data
         except Exception as e:
-            self.logger.warning(f"CBOE VIX fetch failed: {e}, returning mock")
-            mock = self._generate_mock_data()
-            mock["_internal_mock"] = True
-            return mock
+            self.logger.warning(f"CBOE/FRED VIX fetch failed: {e}, returning mock")
+
+        mock = self._generate_mock_data()
+        mock["_internal_mock"] = True
+        mock["data_source"] = "mock"
+        return mock
 
     def _mock_data(self) -> dict:
         """Return mock VIX term structure data."""
-        return self._generate_mock_data()
+        mock = self._generate_mock_data()
+        mock["_internal_mock"] = True
+        mock["data_source"] = "mock"
+        return mock
 
-    async def _fetch_cboe(self) -> dict[str, Any]:
+    async def _fetch_cboe(self) -> dict[str, Any] | None:
         """Fetch VIX spot + VX1/VX2 futures from CBOE public history CSVs.
 
         CSV row format (chronological ASC, last row = latest):
@@ -86,6 +125,12 @@ class VIXTermFetcher(BaseFetcher):
             lines = [l for l in vxv_text.strip().splitlines() if l.strip()]
             vx3 = float(lines[-1].split(",")[1])
 
+        # FIX-13: if both sources gave us 0 / unusable, return None so the
+        # caller falls through to mock rather than emitting zeros that
+        # would look like a real (but wrong) reading.
+        if vix_spot <= 0 or vx3 <= 0:
+            return None
+
         # Compute term structure (VXVCLS = 3M proxy)
         ts_ratio = (vx3 / vix_spot - 1) if vix_spot > 0 else 0.0
         if ts_ratio > 0.02:
@@ -97,13 +142,6 @@ class VIXTermFetcher(BaseFetcher):
 
         panic_premium = vix_spot - vx3 if vix_spot and vx3 else 0.0
 
-        if vix_spot >= 30:
-            regime = "high_vol"
-        elif vix_spot >= 20:
-            regime = "elevated"
-        else:
-            regime = "normal"
-
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "date": latest_date,          # -> writes to vix_term_structure
@@ -114,7 +152,8 @@ class VIXTermFetcher(BaseFetcher):
             "term_structure_ratio": round(ts_ratio, 4),
             "term_structure_state": ts_state,
             "panic_premium": round(panic_premium, 2),
-            "regime": regime,
+            # FIX-22: aligned with schema taxonomy.
+            "regime": _regime_from_spot(vix_spot),
         }
 
     @staticmethod
@@ -126,7 +165,12 @@ class VIXTermFetcher(BaseFetcher):
             return resp.read().decode("utf-8", errors="replace")
 
     def _generate_mock_data(self) -> dict[str, Any]:
-        """Generate realistic mock VIX term structure data."""
+        """Generate realistic mock VIX term structure data.
+
+        FIX-22: emits the same schema (including ``regime`` and
+        ``term_structure_state``) as the real path so downstream code
+        never branches on shape.
+        """
         vix_spot = round(random.uniform(12, 35), 2)
         vx1 = round(vix_spot + random.uniform(-2, 3), 2)
         vx2 = round(vx1 + random.uniform(-1, 4), 2)
@@ -140,13 +184,18 @@ class VIXTermFetcher(BaseFetcher):
             ts_state = "flat"
 
         panic_premium = round(vix_spot - vx1, 2)
+        today = datetime.now(timezone.utc).date().isoformat()
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "date": today,
             "vix_spot": vix_spot,
+            "vx_3m_proxy": vx2,
             "vx1": vx1,
             "vx2": vx2,
             "term_structure_ratio": round(ts_ratio, 4),
             "term_structure_state": ts_state,
             "panic_premium": panic_premium,
+            # FIX-22: aligned with schema taxonomy.
+            "regime": _regime_from_spot(vix_spot),
         }
