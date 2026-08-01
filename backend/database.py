@@ -376,6 +376,38 @@ CREATE INDEX IF NOT EXISTS idx_crypto_oi_history_ts
     ON crypto_oi_history (timestamp ASC);
 
 -- ============================================================
+-- Sector Rotation Domain (2 tables, added 2026-08-02)
+-- Real yfinance sector ETF data.
+-- ============================================================
+
+-- Per-ETF returns per collection cycle (1:N by timestamp).
+CREATE TABLE IF NOT EXISTS sector_rotation (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp      TEXT NOT NULL,
+    symbol         TEXT NOT NULL,
+    name           TEXT,
+    daily_return   REAL,
+    weekly_return  REAL,
+    monthly_return REAL,
+    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_sector_rotation_ts
+    ON sector_rotation (timestamp ASC);
+
+-- One aggregate row per collection cycle (rotation signal + defensive/cyclical).
+CREATE TABLE IF NOT EXISTS sector_rotation_aggregates (
+    timestamp            TEXT PRIMARY KEY,
+    rotation_signal      TEXT,
+    defensive_avg_return REAL,
+    cyclical_avg_return  REAL,
+    best_sector          TEXT,
+    worst_sector         TEXT,
+    breadth_positive     INTEGER,
+    source               TEXT,
+    created_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================================
 -- Signal & Audit Domain (3 tables)
 -- ============================================================
 

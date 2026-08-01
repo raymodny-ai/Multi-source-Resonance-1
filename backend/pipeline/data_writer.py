@@ -94,6 +94,8 @@ class DataWriter:
             return await self._write_crypto_derivatives(conn, data, now, is_mock, mock_reason)
         elif source_lower in ("options_greeks", "options_chain"):
             return await self._write_options_greeks(conn, data, now)
+        elif source_lower == "sector_rotation":
+            return await self._write_sector_rotation(conn, data, now, is_mock, mock_reason)
         else:
             # Generic: write to gateway_snapshots as audit trail
             return await self._write_gateway_snapshot(
@@ -301,6 +303,51 @@ class DataWriter:
             )
             return 1 + len(history)
         return 1
+
+    async def _write_sector_rotation(
+        self, conn, data: dict, now: str,
+        is_mock: bool = False, mock_reason: Optional[str] = None,
+    ) -> int:
+        """Persist real sector rotation data (per-ETF 1:N + one aggregate row).
+
+        Added 2026-08-02: pulls real yfinance sector ETF data. Before this the
+        sector_rotation source had NO table/writer — its output only ever landed
+        in gateway_snapshots as an audit blob and was never queried.
+        """
+        ts = data.get("timestamp") or now
+        sector_perf = data.get("sector_performance") or {}
+
+        # Per-ETF rows (1:N by timestamp)
+        rows = 0
+        if sector_perf:
+            await conn.executemany(
+                """INSERT INTO sector_rotation
+                   (timestamp, symbol, name, daily_return, weekly_return, monthly_return)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                [(ts, etf, (v or {}).get("name"), (v or {}).get("daily_return"),
+                  (v or {}).get("weekly_return"), (v or {}).get("monthly_return"))
+                 for etf, v in sector_perf.items()],
+            )
+            rows += len(sector_perf)
+
+        # One aggregate row per collection cycle
+        await conn.execute(
+            """INSERT OR REPLACE INTO sector_rotation_aggregates
+               (timestamp, rotation_signal, defensive_avg_return, cyclical_avg_return,
+                best_sector, worst_sector, breadth_positive, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                ts,
+                data.get("rotation_signal"),
+                data.get("defensive_avg_return"),
+                data.get("cyclical_avg_return"),
+                (data.get("best_sector") or {}).get("etf"),
+                (data.get("worst_sector") or {}).get("etf"),
+                1 if data.get("breadth_positive") else 0,
+                data.get("source", "yfinance"),
+            ),
+        )
+        return 1 + rows
 
     # ── Crypto derivatives writer ──────────────────────────────────────────────
 

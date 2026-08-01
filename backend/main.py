@@ -25,6 +25,7 @@ from backend.api.routes.gex import router as gex_router
 from backend.api.routes.vix import router as vix_router
 from backend.api.routes.crypto import router as crypto_router
 from backend.api.routes.darkpool import router as darkpool_router
+from backend.api.routes.sector import router as sector_router
 from backend.api.routes.signals import router as signals_router
 from backend.api.routes.system import router as system_router
 from backend.api.routes.config import router as config_router
@@ -279,6 +280,7 @@ app.include_router(crypto_router)
 
 # Dark pool routes
 app.include_router(darkpool_router)
+app.include_router(sector_router)
 
 # Signal & alerts routes
 app.include_router(signals_router)

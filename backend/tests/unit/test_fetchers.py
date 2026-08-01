@@ -389,11 +389,13 @@ class TestSectorFetcher:
 
     @pytest.mark.asyncio
     async def test_mock_data_structure(self):
+        # Structure check on the offline mock fallback (no network). The real
+        # yfinance path (2026-08-02) returns the same top-level keys.
         from backend.fetchers.sector_fetcher import SectorFetcher
 
         config = _make_settings()
         fetcher = SectorFetcher(config)
-        result = await fetcher.fetch()
+        result = fetcher._generate_mock_data()
         assert "sector_performance" in result
         assert "rotation_signal" in result
         assert "best_sector" in result
