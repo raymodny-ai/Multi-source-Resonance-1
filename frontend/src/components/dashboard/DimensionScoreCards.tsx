@@ -11,8 +11,6 @@ interface DimensionDef {
   label: string;
   icon: string;
   description: string;
-  /** 维度满分（用于进度条归一化） */
-  weight: number;
   /** 从 data 提取分数的字段名 */
   scoreKey: keyof Pick<
     DashboardDataNormalized,
@@ -20,11 +18,17 @@ interface DimensionDef {
   >;
 }
 
+// 各维度分数统一为 0-100 归一化尺度（与后端 scoring.calculate_score 一致）。
+// 旧版把聚合权重（GEX 2.5/VIX 1.5/Crypto 2.0/Darkpool 2.0，和为 RAW_MAX=8.0）误当
+// 成维度满分来显示 "/ 2.5" 并除以 weight 算进度条，导致 VIX 100/1.5=66% 等错误显示。
+// 权重只用于后端聚合 total_score，不参与单维度展示 —— 这里满分统一为 100。
+const SCORE_MAX = 100;
+
 const DIMENSIONS: DimensionDef[] = [
-  { key: 'gex', label: 'GEX', icon: 'Γ', description: '期权伽马暴露', weight: 2.5, scoreKey: 'gex_score' },
-  { key: 'vix', label: 'VIX', icon: 'σ', description: '波动率期限结构', weight: 1.5, scoreKey: 'vix_score' },
-  { key: 'crypto', label: 'Crypto', icon: '₿', description: '加密衍生品', weight: 2.0, scoreKey: 'crypto_score' },
-  { key: 'darkpool', label: 'Dark Pool', icon: '◐', description: '暗池流动', weight: 2.0, scoreKey: 'darkpool_score' },
+  { key: 'gex', label: 'GEX', icon: 'Γ', description: '期权伽马暴露', scoreKey: 'gex_score' },
+  { key: 'vix', label: 'VIX', icon: 'σ', description: '波动率期限结构', scoreKey: 'vix_score' },
+  { key: 'crypto', label: 'Crypto', icon: '₿', description: '加密衍生品', scoreKey: 'crypto_score' },
+  { key: 'darkpool', label: 'Dark Pool', icon: '◐', description: '暗池流动', scoreKey: 'darkpool_score' },
 ];
 
 interface ToneClasses {
@@ -33,7 +37,7 @@ interface ToneClasses {
   text: string;
 }
 
-function toneClasses(score: number | null, weight: number, isMock: boolean): ToneClasses {
+function toneClasses(score: number | null, isMock: boolean): ToneClasses {
   if (isMock) {
     return {
       border: 'border-[var(--color-warning)]/40',
@@ -48,7 +52,8 @@ function toneClasses(score: number | null, weight: number, isMock: boolean): Ton
       text: 'text-[var(--color-text-muted)]',
     };
   }
-  const pct = score / Math.max(0.0001, weight);
+  // 分数已是 0-100，按 100 算比例
+  const pct = score / SCORE_MAX;
   if (pct >= 0.66) {
     return {
       border: 'border-[var(--color-danger)]/40',
@@ -88,8 +93,8 @@ export function DimensionScoreCards({
       {DIMENSIONS.map((dim) => {
         const isMock = mockDims[dim.key];
         const score = data?.[dim.scoreKey] ?? null;
-        const tone = toneClasses(score, dim.weight, isMock);
-        const pct = score == null ? 0 : Math.min(100, Math.round((score / dim.weight) * 100));
+        const tone = toneClasses(score, isMock);
+        const pct = score == null ? 0 : Math.min(100, Math.round((score / SCORE_MAX) * 100));
         return (
           <div
             key={dim.key}
@@ -122,7 +127,7 @@ export function DimensionScoreCards({
                 <span className={cn('msr-number text-2xl', tone.text)}>
                   {fmtNum(score, 2, '—')}
                 </span>
-                <span className="text-xs text-[var(--color-text-muted)]">/ {dim.weight.toFixed(1)}</span>
+                <span className="text-xs text-[var(--color-text-muted)]">/ {SCORE_MAX.toFixed(0)}</span>
               </div>
             )}
 
@@ -130,7 +135,7 @@ export function DimensionScoreCards({
               className="h-1.5 w-full bg-[var(--color-bg-elevated)] rounded overflow-hidden"
               role="progressbar"
               aria-valuemin={0}
-              aria-valuemax={dim.weight}
+              aria-valuemax={SCORE_MAX}
               aria-valuenow={score ?? 0}
               aria-label={`${dim.label} 进度`}
             >
