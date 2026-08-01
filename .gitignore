@@ -48,3 +48,6 @@ backups/
 # Test output
 test_output.txt
 test_output2.txt
+
+# Local trash / runtime backups (DB snapshots, removed payloads)
+.trash/

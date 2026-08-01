@@ -207,7 +207,20 @@ class Pipeline:
         scoring_result = await self._phase3_score(analysis_results)
 
         # ── Persist results ────────────────────────────────────────────────────
-        write_results = await self._persist(collected_data, analysis_results, scoring_result)
+        # Compute which of the 4 scoring fetchers degraded to mock at signal
+        # time so the alert can be excluded from Bayesian learning
+        # (IMPL-BAYESIAN-001 #2 FIX-01: don't learn from pseudo-random data).
+        _SCORING_DIMS = ("GEXMetrix", "VIX", "crypto_derivatives", "dark_pool_metrics")
+        mock_by_dim = {
+            src: (exec_report.results.get(src).is_mock if exec_report.results.get(src) else False)
+            for src in _SCORING_DIMS
+        }
+        write_results = await self._persist(
+            collected_data,
+            analysis_results,
+            scoring_result,
+            mock_by_dim=mock_by_dim,
+        )
 
         # Per-source breakdown consumed by API/UI for status & mock-source surfacing.
         source_details = [
@@ -431,12 +444,14 @@ class Pipeline:
             adapter = _get_adapter()
 
             # Fetch the most recent evaluated signal outcome from the DB
+            # (mock-filtered: only learn from real-data signals, IMPL-BAYESIAN-001 #2)
             async with get_db() as db:
                 cursor = await db.execute("""
                     SELECT gex_score, vix_score, crypto_score, darkpool_score,
                            forward_return, trigger_time, alert_level
                     FROM signal_alerts
                     WHERE outcome IS NOT NULL
+                      AND (mock_count = 0 OR mock_count IS NULL)
                     ORDER BY outcome_checked_at DESC
                     LIMIT 1
                 """)
@@ -464,6 +479,15 @@ class Pipeline:
                 logger.info(
                     f"[Phase 3] Bayesian weights updated: {new_weights}"
                 )
+                # Persist adapted posterior state so weights survive restarts
+                # (IMPL-BAYESIAN-001 #1).
+                try:
+                    from backend.quant.scoring import persist_posteriors
+                    await persist_posteriors()
+                except Exception as persist_exc:
+                    logger.warning(
+                        f"[Phase 3] Bayesian persist skipped: {persist_exc}"
+                    )
 
         except Exception as exc:
             logger.warning(
@@ -529,8 +553,15 @@ class Pipeline:
         collected_data: dict[str, dict],
         analysis_results: dict[str, dict],
         scoring_result: dict,
+        mock_by_dim: Optional[dict] = None,
     ) -> dict[str, dict]:
         """Write all results to the database. Returns write results keyed by source.
+
+        Args:
+            mock_by_dim: Optional {source_name: bool} for the 4 scoring fetchers
+                (gex/vix/crypto/darkpool), used to mark signals that were
+                computed from mock (degraded) data. Such alerts are excluded
+                from Bayesian learning (IMPL-BAYESIAN-001 #2).
 
         FIX-27: held under ``_write_lock`` so concurrent scheduler jobs
         (VACUUM, archive, backup) can observe ``is_writing`` and skip
@@ -567,6 +598,10 @@ class Pipeline:
                 alert_level = scoring_result.get("alert_level", "NONE")
                 if alert_level != "NONE":
                     hawkes_br = await self._compute_hawkes_branching_ratio()
+                    # Scoring dims that were mock at signal time (IMPL-BAYESIAN-001 #2).
+                    mock_dims = [
+                        src for src, is_m in (mock_by_dim or {}).items() if is_m
+                    ]
                     await self.writer.write_signal_alert(
                         total_score=scoring_result.get("total_score", 0.0),
                         alert_level=alert_level,
@@ -576,6 +611,8 @@ class Pipeline:
                         darkpool_score=scoring_result.get("darkpool_score"),
                         hawkes_branching_ratio=hawkes_br,
                         details=scoring_result,
+                        mock_sources=mock_dims or None,
+                        mock_count=len(mock_dims),
                     )
                     logger.info(f"[Persist] Signal alert written: {alert_level} (hawkes={hawkes_br})")
 

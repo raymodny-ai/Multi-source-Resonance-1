@@ -94,6 +94,14 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
 
+    # Restore persisted Bayesian posteriors so adapted weights survive restarts
+    # (IMPL-BAYESIAN-001 #1).
+    try:
+        from backend.quant.scoring import restore_persisted_posteriors
+        await restore_persisted_posteriors()
+    except Exception as restore_exc:
+        logger.warning(f"Bayesian posteriors restore skipped: {restore_exc}")
+
     # Initialize auth subsystem (create blacklist table, load from DB)
     await init_auth()
     logger.info("Auth subsystem initialized")

@@ -233,6 +233,58 @@ class BayesianWeightAdapter:
             "min_outcomes": self._min_outcomes,
         }
 
+    def serialize_state(self) -> dict:
+        """Serialize the full adapter state for persistence (IMPL-BAYESIAN-001 #1).
+
+        Returns a JSON-serializable dict capturing the posterior parameters and
+        learning progress so it can be stored in ``system_config`` and restored
+        after a process restart (weights no longer reset to priors on reboot).
+        """
+        return {
+            "posteriors": {
+                dim: {"alpha": params["alpha"], "beta": params["beta"]}
+                for dim, params in self._posteriors.items()
+            },
+            "priors": dict(self._priors),
+            "update_count": self._update_count,
+            "last_update": self._last_update,
+            "min_outcomes": self._min_outcomes,
+            "decay": self._decay,
+        }
+
+    def restore_state(self, state: dict) -> None:
+        """Restore adapter state from a previously persisted dict (IMPL-BAYESIAN-001 #1).
+
+        Rehydrates posterior parameters and learning counters so the weight
+        adaptation survives process restarts. Unknown/missing keys are ignored
+        (graceful degrade to current state).
+
+        Args:
+            state: dict as produced by :meth:`serialize_state`.
+        """
+        if not isinstance(state, dict):
+            return
+        posteriors = state.get("posteriors")
+        if isinstance(posteriors, dict):
+            restored: dict[str, dict[str, float]] = {}
+            for dim, params in posteriors.items():
+                if isinstance(params, dict) and "alpha" in params and "beta" in params:
+                    try:
+                        restored[dim] = {
+                            "alpha": float(params["alpha"]),
+                            "beta": float(params["beta"]),
+                        }
+                    except (TypeError, ValueError):
+                        continue
+            if restored:
+                self._posteriors = restored
+        self._update_count = int(state.get("update_count", self._update_count))
+        self._last_update = state.get("last_update", self._last_update)
+        if isinstance(state.get("decay"), (int, float)):
+            self._decay = float(state["decay"])
+        if isinstance(state.get("min_outcomes"), int):
+            self._min_outcomes = state["min_outcomes"]
+
     def reset(self) -> None:
         """Reset posteriors back to priors."""
         for dim, params in self._priors.items():

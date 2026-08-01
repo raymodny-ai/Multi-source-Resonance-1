@@ -126,12 +126,14 @@ async def job_update_bayesian_weights():
         tracker = SignalOutcomeTracker()
 
         async with get_db() as db:
-            # Fetch evaluated signal outcomes from the last 90 days
+            # Fetch evaluated signal outcomes from the last 90 days.
+            # mock-filtered: only learn from real-data signals (IMPL-BAYESIAN-001 #2).
             cursor = await db.execute("""
                 SELECT gex_score, vix_score, crypto_score, darkpool_score,
                        forward_return, trigger_time, alert_level
                 FROM signal_alerts
                 WHERE outcome IS NOT NULL
+                  AND (mock_count = 0 OR mock_count IS NULL)
                   AND outcome_checked_at >= datetime('now', '-90 days')
                 ORDER BY outcome_checked_at ASC
             """)
@@ -147,6 +149,14 @@ async def job_update_bayesian_weights():
             f"update_bayesian_weights: updated from {len(outcomes)} outcomes "
             f"→ {new_weights}"
         )
+
+        # Persist adapted posterior state so weights survive restarts
+        # (IMPL-BAYESIAN-001 #1).
+        try:
+            from backend.quant.scoring import persist_posteriors
+            await persist_posteriors()
+        except Exception as persist_exc:
+            logger.warning(f"update_bayesian_weights persist failed: {persist_exc}")
 
     except Exception as exc:
         logger.error(f"update_bayesian_weights failed: {exc}", exc_info=True)

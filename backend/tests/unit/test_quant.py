@@ -343,6 +343,57 @@ class TestScoring:
 
 
 # ===========================================================================
+# Bayesian weight persistence (IMPL-BAYESIAN-001 #1)
+# ===========================================================================
+
+class TestBayesianPersistence:
+    """Serialize/restore round-trip so adapted weights survive restarts."""
+
+    def _make_adapter_with_history(self):
+        from backend.quant.bayesian_weights import BayesianWeightAdapter
+        a = BayesianWeightAdapter(min_outcomes=1)
+        outs = [
+            {"gex_score": 80, "vix_score": 50, "crypto_score": 50,
+             "darkpool_score": 50, "forward_return": 2.0,
+             "trigger_time": "2026-08-01T00:00:00Z", "alert_level": "LEVEL_2"},
+            {"gex_score": 60, "vix_score": 50, "crypto_score": 50,
+             "darkpool_score": 50, "forward_return": 1.5,
+             "trigger_time": "2026-08-02T00:00:00Z", "alert_level": "LEVEL_2"},
+        ]
+        a.update_weights(outs)
+        return a
+
+    def test_serialize_contains_full_state(self):
+        a = self._make_adapter_with_history()
+        state = a.serialize_state()
+        assert set(state) == {
+            "posteriors", "priors", "update_count",
+            "last_update", "min_outcomes", "decay",
+        }
+        assert state["update_count"] == 1
+        assert set(state["posteriors"]) == {"gex", "vix", "crypto", "darkpool"}
+
+    def test_restore_rehydrates_posteriors_and_weights(self):
+        a = self._make_adapter_with_history()
+        state = a.serialize_state()
+        from backend.quant.bayesian_weights import BayesianWeightAdapter
+        b = BayesianWeightAdapter(min_outcomes=1)  # fresh priors
+        b.restore_state(state)
+        assert b.get_current_weights() == a.get_current_weights()
+        assert b.serialize_state()["posteriors"] == state["posteriors"]
+        assert b.serialize_state()["update_count"] == state["update_count"]
+
+    def test_restore_graceful_on_bad_input(self):
+        from backend.quant.bayesian_weights import BayesianWeightAdapter
+        b = BayesianWeightAdapter(min_outcomes=1)
+        before = b.serialize_state()
+        b.restore_state(None)          # not a dict → no-op
+        b.restore_state({})            # empty → no-op
+        b.restore_state({"posteriors": {"gex": {"alpha": "bad"}}})  # bad value
+        assert b.serialize_state() == before  # unchanged
+
+
+# ===========================================================================
 # Hawkes AR(1) Model
 # ===========================================================================
 

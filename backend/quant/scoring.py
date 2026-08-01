@@ -40,6 +40,41 @@ RAW_MAX = sum(DEFAULT_WEIGHTS.values())  # 8.0
 # ── Dynamic weight management via BayesianWeightAdapter ──────────────────────
 _adapter_instance: Optional[object] = None  # Lazy-initialized BayesianWeightAdapter
 
+# system_config key under which the Bayesian posterior state is persisted
+# (IMPL-BAYESIAN-001 #1: weights survive process restarts).
+_WEIGHTS_CONFIG_KEY = "bayesian_weights_state"
+
+
+async def _restore_posteriors(adapter) -> None:
+    """Restore persisted Bayesian posteriors from ``system_config``.
+
+    Called once at adapter initialisation. If no persisted state exists
+    (first run) this is a no-op and the adapter keeps its priors.
+
+    Args:
+        adapter: The BayesianWeightAdapter instance to restore into.
+    """
+    try:
+        import json
+        from backend.database import get_db
+        async with get_db() as db:
+            cursor = await db.execute(
+                "SELECT value FROM system_config WHERE key = ?",
+                (_WEIGHTS_CONFIG_KEY,),
+            )
+            row = await cursor.fetchone()
+        if not row or not row[0]:
+            logger.debug("No persisted Bayesian posteriors (first run)")
+            return
+        state = json.loads(row[0])
+        adapter.restore_state(state)
+        logger.info(
+            f"Bayesian posteriors restored from DB "
+            f"(update_count={adapter.get_update_stats().get('update_count', 0)})"
+        )
+    except Exception as exc:
+        logger.debug(f"Unable to restore persisted Bayesian posteriors: {exc}")
+
 
 def _get_adapter():
     """Lazily initialise and return the module-level BayesianWeightAdapter."""
@@ -54,6 +89,45 @@ def _get_adapter():
         _adapter_instance = BayesianWeightAdapter(min_outcomes=1)
         logger.info("BayesianWeightAdapter initialised (min_outcomes=1, incremental)")
     return _adapter_instance
+
+
+async def restore_persisted_posteriors() -> None:
+    """Restore persisted Bayesian posteriors into the adapter (IMPL-BAYESIAN-001 #1).
+
+    Call once at application startup (after DB init) so weights survive
+    process restarts. Idempotent, best-effort; first run is a no-op.
+    """
+    await _restore_posteriors(_get_adapter())
+
+
+async def persist_posteriors() -> None:
+    """Persist the current adapter state to ``system_config`` (IMPL-BAYESIAN-001 #1).
+
+    Call after any successful weight update so learning survives restarts.
+    Best-effort: failures are logged, never raised.
+    """
+    try:
+        import json
+        from backend.database import get_db
+        adapter = _get_adapter()
+        state = adapter.serialize_state()
+        async with get_db() as db:
+            await db.execute(
+                """
+                INSERT INTO system_config (key, value, description)
+                VALUES (?, ?, 'Bayesian posterior parameters (auto-managed)')
+                ON CONFLICT(key) DO UPDATE
+                    SET value = excluded.value,
+                        updated_at = CURRENT_TIMESTAMP
+                """,
+                (_WEIGHTS_CONFIG_KEY, json.dumps(state)),
+            )
+            await db.commit()
+        logger.info(
+            f"Bayesian posteriors persisted (update_count={state.get('update_count', 0)})"
+        )
+    except Exception as exc:
+        logger.warning(f"Failed to persist Bayesian posteriors: {exc}")
 
 
 def get_current_weights() -> dict:
