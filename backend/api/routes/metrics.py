@@ -14,6 +14,14 @@ from backend.database import get_db
 
 logger = logging.getLogger(__name__)
 
+# AUDIT-MOCK-002 follow-up (SQL hardening): the only tables allowed in the
+# f-string count queries below. Table names are static literals, but this
+# whitelist guarantees no interpolated value can ever reach the SQL.
+ALLOWED_COUNT_TABLES: frozenset[str] = frozenset({
+    "gex_snapshots", "gex_strikes", "gex_history", "vix_analysis",
+    "dark_pool_metrics", "crypto_derivatives", "signal_alerts",
+})
+
 router = APIRouter(prefix="/api/metrics", tags=["Metrics"])
 
 
@@ -89,10 +97,7 @@ async def prometheus_metrics(request: Request):
 
     # Table row counts
     async with get_db() as db:
-        tables = [
-            "gex_snapshots", "gex_strikes", "gex_history", "vix_analysis",
-            "dark_pool_metrics", "crypto_derivatives", "signal_alerts",
-        ]
+        tables = sorted(ALLOWED_COUNT_TABLES)
         for table in tables:
             try:
                 cursor = await db.execute(f"SELECT COUNT(*) FROM {table}")
@@ -154,11 +159,7 @@ async def metrics_summary(request: Request):
     # Table counts
     table_counts = {}
     async with get_db() as db:
-        tables = [
-            "gex_snapshots", "gex_strikes", "gex_history", "vix_analysis",
-            "dark_pool_metrics", "crypto_derivatives", "signal_alerts",
-        ]
-        for table in tables:
+        for table in sorted(ALLOWED_COUNT_TABLES):
             try:
                 cursor = await db.execute(f"SELECT COUNT(*) FROM {table}")
                 row = await cursor.fetchone()

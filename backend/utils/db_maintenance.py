@@ -202,7 +202,12 @@ async def verify_write_paths() -> dict:
         Dict with write-path status for each monitored table.
     """
     results = {}
-    tables_to_check = ["validation_audit_log", "gateway_snapshots"]
+    # AUDIT follow-up (SQL hardening): whitelist — only these static tables
+    # may be interpolated into the count query below.
+    tables_to_check = [
+        t for t in ["validation_audit_log", "gateway_snapshots"]
+        if isinstance(t, str) and t.isidentifier() and t in {"validation_audit_log", "gateway_snapshots"}
+    ]
 
     try:
         async with _get_read_conn() as conn:

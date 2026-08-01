@@ -95,12 +95,21 @@ class FinraFetcher(BaseFetcher):
             if sym not in results:
                 results[sym] = {**self._mock_symbol(sym), "source": "mock"}
 
+        # Aggregate only over LIVE (finra/yfinance) symbols — never average
+        # random/mock into the real aggregate (AUDIT-MOCK-002 P0 #5).
+        live = [
+            v for v in results.values()
+            if v.get("source") in ("finra", "yfinance")
+            and v.get("days_to_cover") is not None
+        ]
+        aggregated = round(
+            sum(v["days_to_cover"] for v in live) / len(live), 2
+        ) if live else None
+
         return {
             "date": date.today().isoformat(),
             "symbols": results,
-            "aggregated_short_ratio": round(
-                sum(v.get("days_to_cover", 0) for v in results.values()) / max(len(results), 1), 2
-            ),
+            "aggregated_short_ratio": aggregated,
         }
 
     @staticmethod
@@ -148,11 +157,16 @@ class FinraFetcher(BaseFetcher):
         return out
 
     def _mock_symbol(self, symbol: str) -> dict[str, Any]:
-        """Generate mock data for a single symbol."""
+        """Mock marker for a single symbol (AUDIT-MOCK-002 P0 #5).
+
+        Used only when the FINRA+yfinance chain for that symbol fails. Values
+        are NULL + source='mock' — no random short figures injected on the
+        live path.
+        """
         return {
-            "short_interest": random.randint(5_000_000, 50_000_000),
-            "days_to_cover": round(random.uniform(1.0, 5.0), 2),
-            "settlement_date": date.today().isoformat(),
+            "short_interest": None,
+            "days_to_cover": None,
+            "settlement_date": None,
         }
 
     def _generate_mock_data(self) -> dict[str, Any]:

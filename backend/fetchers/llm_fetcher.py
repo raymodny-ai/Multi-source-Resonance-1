@@ -134,7 +134,7 @@ class LLMFetcher(BaseFetcher):
             "model": "gpt-4o",
             "analysis": content,
             "signal": self._extract_signal(content),
-            "confidence": round(random.uniform(0.6, 0.9), 2),
+            "confidence": self._extract_confidence(content),
         }
 
     async def _call_anthropic(self, context: Optional[dict]) -> dict[str, Any]:
@@ -166,7 +166,7 @@ class LLMFetcher(BaseFetcher):
             "model": "claude-sonnet-4-20250514",
             "analysis": content,
             "signal": self._extract_signal(content),
-            "confidence": round(random.uniform(0.6, 0.9), 2),
+            "confidence": self._extract_confidence(content),
         }
 
     def _build_prompt(self, context: Optional[dict]) -> str:
@@ -195,6 +195,30 @@ Keep response under 200 words. Be specific and quantitative."""
         elif any(w in analysis_lower for w in ["sell", "distribution", "top", "bearish"]):
             return "bearish"
         return "neutral"
+
+    @staticmethod
+    def _extract_confidence(analysis: str) -> Optional[float]:
+        """Try to parse a real confidence value out of the LLM response.
+
+        AUDIT-MOCK-002 P0 #2: never fabricate confidence with random.
+        Accepts tokens like ``confidence: 0.83`` or ``confidence 83%``.
+        Returns None when the model didn't state one (honest absence).
+        """
+        if not analysis:
+            return None
+        import re
+        m = re.search(r"confidence\s*[:=]?\s*(\d{1,3}(?:\.\d+)?)", analysis, re.I)
+        if not m:
+            return None
+        try:
+            val = float(m.group(1))
+        except ValueError:
+            return None
+        if 0 <= val <= 1:  # e.g. 0.83
+            return round(val, 2)
+        if 1 < val <= 100:  # e.g. 83 (percent)
+            return round(val / 100.0, 2)
+        return None
 
     def _generate_mock_analysis(self, context: Optional[dict]) -> dict[str, Any]:
         """Generate preset mock analysis result."""

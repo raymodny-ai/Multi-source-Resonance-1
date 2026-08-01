@@ -110,23 +110,40 @@ class StockGridFetcher(BaseFetcher):
         results: dict[str, Any] = {}
         for sym, d in raw.items():
             if d is None:
-                results[sym] = self._mock_symbol()
+                # AUDIT-MOCK-002 P0 #3: failed symbol -> honest NULL + mock tag,
+                # NO random. Marked so downstream can distinguish.
+                results[sym] = {
+                    "price_slope_20d": None,
+                    "price_slope_60d": None,
+                    "volume_slope_20d": None,
+                    "divergence": None,
+                    "last_close": None,
+                    "as_of": None,
+                    "source": "mock",
+                }
             else:
+                d["source"] = "live"
                 results[sym] = d
 
-        # Aggregate signals
-        any_divergence = any(v.get("divergence", False) for v in results.values())
-        avg_slope_20d = sum(v.get("price_slope_20d", 0) for v in results.values()) / max(len(results), 1)
+        # Aggregate only over LIVE symbols — never average NULL/fake into the
+        # real aggregate (AUDIT-MOCK-002 P0 #3).
+        live = [v for v in results.values() if v.get("source") == "live"]
+        any_divergence = any(v.get("divergence") for v in live) if live else None
+        if live:
+            avg_slope_20d = sum(v.get("price_slope_20d", 0) for v in live) / len(live)
+            avg_slope_60d = sum(v.get("price_slope_60d", 0) for v in live) / len(live)
+            stockgrid_signal = bool(any_divergence and avg_slope_20d < 0)
+        else:
+            avg_slope_20d = avg_slope_60d = None
+            stockgrid_signal = False
 
         return {
             "date": date.today().isoformat(),
             "symbols": results,
-            "stockgrid_20d_slope": round(avg_slope_20d, 4),
-            "stockgrid_60d_slope": round(
-                sum(v.get("price_slope_60d", 0) for v in results.values()) / max(len(results), 1), 4
-            ),
+            "stockgrid_20d_slope": round(avg_slope_20d, 4) if avg_slope_20d is not None else None,
+            "stockgrid_60d_slope": round(avg_slope_60d, 4) if avg_slope_60d is not None else None,
             "stockgrid_divergence": any_divergence,
-            "stockgrid_signal": any_divergence and avg_slope_20d < 0,
+            "stockgrid_signal": stockgrid_signal,
         }
 
     def _mock_symbol(self) -> dict[str, Any]:

@@ -77,26 +77,43 @@ class TradierFetcher(BaseFetcher):
                         "put_call_ratio": round(pc_ratio, 4),
                         "total_options": len(options),
                         "nearest_expiry": options[0].get("expiration_date", "") if options else "",
+                        "source": "live",
                     }
                 else:
-                    results[symbol] = self._mock_symbol(symbol)
+                    # AUDIT-MOCK-002 P0 #4: failed symbol -> NULL + mock tag, no random
+                    results[symbol] = self._null_symbol()
             except Exception:
-                results[symbol] = self._mock_symbol(symbol)
+                results[symbol] = self._null_symbol()
 
-        # Aggregate
-        total_calls = sum(v.get("call_oi", 0) for v in results.values())
-        total_puts = sum(v.get("put_oi", 0) for v in results.values())
+        # Aggregate only over LIVE symbols — never mix random/fake into the real
+        # aggregate (AUDIT-MOCK-002 P0 #4).
+        live = [v for v in results.values() if v.get("source") == "live"]
+        total_calls = sum(v.get("call_oi", 0) for v in live)
+        total_puts = sum(v.get("put_oi", 0) for v in live)
+        aggregate_pc = round(total_puts / max(total_calls, 1), 4) if live else None
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "symbols": results,
-            "aggregate_put_call_ratio": round(total_puts / max(total_calls, 1), 4),
+            "aggregate_put_call_ratio": aggregate_pc,
             "total_call_oi": total_calls,
             "total_put_oi": total_puts,
         }
 
+    def _null_symbol(self) -> dict[str, Any]:
+        """NULL + source='mock' marker for a symbol whose live chain failed
+        (AUDIT-MOCK-002 P0 #4). No random OI ever injected on the live path."""
+        return {
+            "call_oi": None,
+            "put_oi": None,
+            "put_call_ratio": None,
+            "total_options": None,
+            "nearest_expiry": None,
+            "source": "mock",
+        }
+
     def _mock_symbol(self, symbol: str) -> dict[str, Any]:
-        """Generate mock data for a single symbol."""
+        """Generate realistic mock data for a single symbol (full-mock fallback only)."""
         call_oi = random.randint(500_000, 2_000_000)
         put_oi = random.randint(400_000, 1_800_000)
         return {

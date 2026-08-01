@@ -1,11 +1,18 @@
 """
-SqueezeMetrics dark pool data fetcher.
+SqueezeMetrics dark pool fetcher (DIX / GEX / flip zone / put wall).
 
-Fetches DIX, GEX history, and flip zone data from SqueezeMetrics public CSV.
-This is a standalone fetcher split from darkpool_fetcher.py for modularity.
+Fetches the free public SqueezeMetrics DIX+GEX CSV and derives the
+GEX-page metrics from the REAL SPX close price in that CSV (AUDIT-MOCK-002 P0).
 
-Source: https://squeezemetrics.com/monitor/dix (free public CSV)
-Fallback: Returns mock data matching DarkpoolFlow model schema.
+Data contract (AUDIT-MOCK-002 P0 #1): the live path MUST NOT inject any
+random values. put_wall / flip_zone / gex_calibrated are computed from the
+real CSV price/gex via the same ratios as scripts/backfill_gex_history.py:
+    gex_calibrated = gex_local * 0.95
+    put_wall       = spot_price * 0.96
+    flip_zone_lower/upper = spot_price * 0.97 / 1.03
+
+Source: https://squeezemetrics.com/monitor/static/DIX.csv (free public CSV)
+Fallback: Returns mock data (is_mock=1) only when the CSV fetch fails.
 """
 
 import random
@@ -24,12 +31,17 @@ class SqueezeMetricsFetcher(BaseFetcher):
 
     @property
     def _mock_mode_key(self) -> str:
-        return ""  # public data — no key gating (must hit live path, mock only on fetch failure)
+        return ""  # public data — no key gating (mock only on fetch failure)
 
-    CSV_URL = "https://squeezemetrics.com/monitor/dix"
+    CSV_URL = "https://squeezemetrics.com/monitor/static/DIX.csv"
+
+    # Calibration ratios (must match scripts/backfill_gex_history.py)
+    GEX_CALIBRATION_RATIO = 0.95
+    PUT_WALL_RATIO = 0.96
+    FLIP_ZONE_LOWER_RATIO = 0.97
+    FLIP_ZONE_UPPER_RATIO = 1.03
 
     def _is_mock_mode(self) -> bool:
-        """SqueezeMetrics is public — never in mock mode unless network unavailable."""
         return False
 
     async def fetch(self) -> dict:
@@ -43,11 +55,14 @@ class SqueezeMetricsFetcher(BaseFetcher):
             return mock
 
     def _mock_data(self) -> dict:
-        """Return mock SqueezeMetrics data."""
         return self._generate_mock_data()
 
     async def _fetch_csv(self) -> dict[str, Any]:
-        """Parse SqueezeMetrics public DIX+GEX CSV."""
+        """Parse SqueezeMetrics public DIX+GEX CSV (date,price,dix,gex).
+
+        Rows are chronological ASC — the latest is the LAST row (unlike the
+        old code which wrongly read lines[1] as latest).
+        """
         client = await self._get_client()
         resp = await client.get(self.CSV_URL)
         resp.raise_for_status()
@@ -56,28 +71,41 @@ class SqueezeMetricsFetcher(BaseFetcher):
         if len(lines) < 2:
             raise ValueError("SqueezeMetrics CSV has insufficient data")
 
-        header = lines[0].split(",")
-        latest = lines[1].split(",")
+        latest = lines[-1].split(",")
+        # Typical columns: date, price, dix, gex  (AUDIT verified)
+        try:
+            price = float(latest[1]) if len(latest) > 1 and latest[1] else None
+            dix_value = float(latest[2]) if len(latest) > 2 and latest[2] else None
+            gex_value = float(latest[3]) if len(latest) > 3 and latest[3] else None
+        except (ValueError, IndexError):
+            price = dix_value = gex_value = None
 
-        # Parse columns (typical layout: date, DIX, GEX, ...)
-        dix_value = float(latest[1]) if len(latest) > 1 else None
-        gex_value = float(latest[2]) if len(latest) > 2 else None
+        # AUDIT-MOCK-002 P0 #1: derive GEX-page metrics from the REAL SPX price
+        # (no random). put_wall / flip_zone are absolute price levels.
+        if price:
+            put_wall = round(price * self.PUT_WALL_RATIO, 2)
+            flip_lower = round(price * self.FLIP_ZONE_LOWER_RATIO, 2)
+            flip_upper = round(price * self.FLIP_ZONE_UPPER_RATIO, 2)
+        else:
+            put_wall = flip_lower = flip_upper = None
 
         return {
             "date": date.today().isoformat(),
             "dix_value": dix_value,
             "gex_local": gex_value,
-            "gex_calibrated": gex_value,
+            "gex_calibrated": round(gex_value * self.GEX_CALIBRATION_RATIO, 2) if gex_value else None,
             "alpha_factor": 1.0,
-            "put_wall_level": round(random.uniform(5200, 5600), 0) if gex_value else None,
-            "flip_zone_lower": round(random.uniform(5300, 5500), 0) if gex_value else None,
-            "flip_zone_upper": round(random.uniform(5500, 5700), 0) if gex_value else None,
-            "chartexchange_short_ratio": round(random.uniform(1.5, 4.0), 2),
-            "stockgrid_slope": round(random.uniform(-0.5, 0.5), 4),
+            "put_wall_level": put_wall,
+            "flip_zone_lower": flip_lower,
+            "flip_zone_upper": flip_upper,
+            # short ratio / stockgrid slope are fed by darkpool_fetcher / finra —
+            # this fetcher's CSV has no such columns, so they stay honest None.
+            "chartexchange_short_ratio": None,
+            "stockgrid_slope": None,
         }
 
     def _generate_mock_data(self) -> dict[str, Any]:
-        """Generate realistic mock SqueezeMetrics data."""
+        """Synthetic mock — ONLY used when the real CSV fetch fails (is_mock=1)."""
         gex = random.uniform(-2000000, 2000000)
         return {
             "date": date.today().isoformat(),
