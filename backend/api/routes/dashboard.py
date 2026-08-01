@@ -264,7 +264,13 @@ async def data_quality():
         sources = [dict(r) for r in rows]
 
     total_sources = len(sources)
-    healthy_sources = sum(1 for s in sources if s.get("age_minutes", 9999) < 1440)
+    # ponytail: age_minutes can be None (e.g. source with 0 rows / no data) — normalizing to a large number
+    # avoids `TypeError: '<' not supported between NoneType and int` → HTTP 500 on /api/dashboard/data-quality
+    def _age_minutes(s):
+        v = s.get("age_minutes")
+        return v if v is not None else 99999
+
+    healthy_sources = sum(1 for s in sources if _age_minutes(s) < 1440)
     return {
         "total_sources": total_sources,
         "healthy_sources": healthy_sources,

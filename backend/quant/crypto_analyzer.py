@@ -66,6 +66,10 @@ def _compute_crypto_analysis(data: dict) -> dict:
     funding_anomaly = data.get("funding_anomaly", False)
     oi_crash = data.get("oi_crash", False)
     elr = data.get("cryptoquant_elr")
+    # CoinGecko spot-price enrichment (2026-08-01)
+    btc_change = data.get("btc_24h_change")
+    eth_change = data.get("eth_24h_change")
+    btc_price = data.get("btc_price")
 
     signals = []
     raw_score = 0.0
@@ -115,6 +119,33 @@ def _compute_crypto_analysis(data: dict) -> dict:
             signals.append("high_leverage_risk")
             # High leverage = potential for future cleanup, not immediate signal
 
+    # --- Signal 6: CoinGecko spot-price momentum (2026-08-01) ---
+    # Uses the stronger of |BTC 24h%| / |ETH 24h%| so a sharp move in either
+    # flags crypto risk even when derivatives (funding/OI) are quiet.
+    # max 20.0 points
+    spot_move = None
+    if btc_change is not None or eth_change is not None:
+        abs_btc = abs(btc_change) if btc_change is not None else 0.0
+        abs_eth = abs(eth_change) if eth_change is not None else 0.0
+        if abs_btc >= abs_eth:
+            spot_move = btc_change
+        else:
+            spot_move = eth_change
+
+    if spot_move is not None:
+        if spot_move <= -8.0:
+            signals.append("spot_crash")
+            raw_score += 20.0
+        elif spot_move <= -4.0:
+            signals.append("spot_sharp_drop")
+            raw_score += 15.0
+        elif spot_move >= 8.0:
+            signals.append("spot_parabolic")
+            raw_score += 20.0
+        elif spot_move >= 4.0:
+            signals.append("spot_strong_rally")
+            raw_score += 12.0
+
     # Determine sentiment
     sentiment = "neutral"
     if raw_score >= 50:
@@ -122,6 +153,8 @@ def _compute_crypto_analysis(data: dict) -> dict:
     elif raw_score >= 25:
         sentiment = "fear"
     elif funding_rate and funding_rate > 0.01:
+        sentiment = "euphoria"
+    elif spot_move is not None and spot_move >= 4.0:
         sentiment = "euphoria"
 
     final_score = max(0.0, min(100.0, raw_score))
@@ -141,6 +174,9 @@ def _compute_crypto_analysis(data: dict) -> dict:
             "oi_crash": oi_crash,
             "cryptoquant_elr": elr,
             "sentiment": sentiment,
+            "btc_price": btc_price,
+            "btc_24h_change": btc_change,
+            "eth_24h_change": eth_change,
         },
     }
 

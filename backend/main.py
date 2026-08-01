@@ -44,6 +44,7 @@ from backend.fetchers import (
 )
 from backend.models.common import ErrorResponse, HealthCheck
 from backend.pipeline import Pipeline
+from backend.quant.pipeline_adapter import register_pipeline_analyzers_and_scorer
 from backend.utils.scheduler import start_scheduler, stop_scheduler
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
@@ -112,6 +113,10 @@ async def lifespan(app: FastAPI):
     pipeline = Pipeline(config=settings, event_bus=event_bus, fetchers=fetchers)
     app.state.pipeline = pipeline
     logger.info("Pipeline V2.0 initialized")
+
+    # Wire quant analyzers + scorer into Phase 2/3 (otherwise fetchers collect
+    # data but no analysis/scoring runs → signals/heatmap/alerts stay empty)
+    register_pipeline_analyzers_and_scorer(pipeline)
 
     # Start scheduled maintenance jobs
     start_scheduler()

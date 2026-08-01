@@ -22,7 +22,10 @@ class DarkpoolFetcher(BaseFetcher):
 
     @property
     def _mock_mode_key(self) -> str:
-        return "darkpool"
+        # Darkpool fetcher pulls the public SqueezeMetrics DIX CSV (no key needed).
+        # Mapping to "none" (not in config.is_mock_mode key_map) so it always hits
+        # the live path and only falls back to mock when the CSV fetch fails.
+        return "none"
 
     SQUEEZEMETRICS_CSV_URL = "https://squeezemetrics.com/monitor/static/DIX.csv"
 

@@ -41,19 +41,31 @@ class CryptoFetcher(BaseFetcher):
         """Fetch crypto derivatives data with fallback chain."""
         # Try Hyperliquid first (free, no key)
         try:
-            return await self._fetch_hyperliquid()
+            result = await self._fetch_hyperliquid()
         except Exception as e:
             self.logger.warning(f"Hyperliquid failed: {e}, trying CCData fallback")
+            result = None
 
-        # Fallback to CCData (requires key)
-        from backend.config import settings
-        if settings.crypto_api_key:
+        if result is None:
+            # Fallback to CCData (requires key)
+            from backend.config import settings
+            if settings.crypto_api_key:
+                try:
+                    result = await self._fetch_ccdata()
+                except Exception as e:
+                    self.logger.warning(f"CCData failed: {e}")
+
+        # Enrich with CoinGecko free market prices (BTC/ETH spot + 24h change/volume)
+        if result is not None:
             try:
-                return await self._fetch_ccdata()
+                cg = await self._fetch_coingecko()
+                if cg:
+                    result.update(cg)
             except Exception as e:
-                self.logger.warning(f"CCData failed: {e}")
+                self.logger.warning(f"CoinGecko enrichment failed: {e}")
+            return result
 
-        # No key for fallback — return mock
+        # No source returned usable data — return mock
         self.logger.warning("CCData key missing, returning mock data")
         mock = self._generate_mock_data()
         mock["_internal_mock"] = True
@@ -107,6 +119,34 @@ class CryptoFetcher(BaseFetcher):
             "funding_anomaly": funding_anomaly,
             "oi_crash": oi_crash,
             "leverage_cleanup": leverage_cleanup,
+        }
+
+    # CoinGecko free public API (no key required) — enriched market prices.
+    COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
+
+    async def _fetch_coingecko(self) -> dict[str, Any]:
+        """Enrich with BTC/ETH spot prices from CoinGecko free API.
+
+        Returns empty dict on any failure (enrichment is best-effort; the
+        underlying derivatives data is still returned by the caller).
+        """
+        resp = await self._http_get(
+            f"{self.COINGECKO_URL}"
+            "?ids=bitcoin,ethereum&vs_currencies=usd"
+            "&include_24hr_change=true&include_24hr_vol=true",
+            headers={"accept": "application/json"},
+        )
+        data = resp.json()
+        btc = data.get("bitcoin") or {}
+        eth = data.get("ethereum") or {}
+        if btc.get("usd") is None:
+            return {}
+        return {
+            "btc_price": btc.get("usd"),
+            "btc_24h_change": btc.get("usd_24h_change"),
+            "btc_volume": btc.get("usd_24h_vol"),
+            "eth_price": eth.get("usd"),
+            "eth_24h_change": eth.get("usd_24h_change"),
         }
 
     async def _fetch_ccdata(self) -> dict[str, Any]:

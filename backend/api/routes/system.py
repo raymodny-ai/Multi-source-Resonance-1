@@ -92,15 +92,26 @@ async def source_status():
     for src in sources:
         name = src.get("source") or ""
         age_minutes = src.get("age_minutes") or 9999
+        total_rows = src.get("total_rows")
         status = "online" if age_minutes < 1440 else ("degraded" if age_minutes < 4320 else "offline")
         overlay = per_source_state.get(name.lower(), {})
+        # Availability should reflect whether we actually hold data, not just
+        # freshness. A source with rows but stale latest gets a floor so the
+        # UI doesn't report 0% when history exists (e.g. daily-close sources
+        # that only update on trading days).
+        if age_minutes < 1440:
+            avail = round(max(0, 100 - (age_minutes / 1440 * 100)), 1)
+        elif total_rows and total_rows > 0:
+            avail = 25.0  # data present, just stale
+        else:
+            avail = 0.0
         result.append({
             "name": name,
             "status": status,
             "method": "REST API",
-            "availability_pct": round(max(0, 100 - (age_minutes / 1440 * 100)), 1) if age_minutes < 1440 else 0.0,
+            "availability_pct": avail,
             "last_data_ts": src.get("last_data_ts"),
-            "total_rows": src.get("total_rows"),
+            "total_rows": total_rows,
             "age_minutes": round(age_minutes, 1),
             "last_error": overlay.get("error"),
             "is_mock": bool(overlay.get("is_mock", False)),

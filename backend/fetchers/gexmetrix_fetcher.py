@@ -10,6 +10,7 @@ Typical latency: ~9.87s (largest payload, 1600+ strikes per symbol)
 """
 
 import logging
+import re
 import random
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -28,6 +29,11 @@ MIN_OI_FILTER = 100    # Minimum OI to include a strike (filter deep OTM)
 
 # GEXMetrix API base URL
 GEXMETRIX_BASE_URL = "https://api.gexmetrix.com/api/files"
+
+# Site-level X-API-Key used by the public GEXMetrix dashboard JS. The data API
+# requires this header (email login only buys session-tier privileges). When the
+# operator supplies gexmetrix_api_key in .env it takes precedence over this.
+_GEXMETRIX_SITE_API_KEY = "d9393d64-5a52-444f-9eb2-0dce249817ff-676a8cc3-868a-4fc9-ab5b-1530edeb4405"
 
 
 class GEXMetrixFetcher(BaseFetcher):
@@ -49,7 +55,11 @@ class GEXMetrixFetcher(BaseFetcher):
 
     @property
     def _mock_mode_key(self) -> str:
-        return "gexmetrix"
+        # GEXMetrix data API accepts the public site-level X-API-Key bundled in
+        # the dashboard JS (or the operator-supplied gexmetrix_api_key). Because a
+        # working key is always available, never force mock mode here — map to a
+        # key not in config key_map so fetch always hits the live path.
+        return "none"
 
     async def fetch(self) -> dict:
         """Fetch latest GEX data for all tracked symbols.
@@ -67,12 +77,21 @@ class GEXMetrixFetcher(BaseFetcher):
         for symbol in self._symbols:
             try:
                 url = f"{GEXMETRIX_BASE_URL}/{symbol.lower()}/latest"
+                # GEXMetrix data API authenticates via the site-level X-API-Key header
+                # (the email login is only for sessionTier privileges).
                 headers = {}
-                if self.config.gexmetrix_api_key:
-                    headers["Authorization"] = f"Bearer {self.config.gexmetrix_api_key}"
+                site_key = (
+                    self.config.gexmetrix_api_key
+                    or _GEXMETRIX_SITE_API_KEY
+                )
+                if site_key:
+                    headers["X-API-Key"] = site_key
 
                 response = await self._http_get(url, headers=headers)
-                data = response.json()
+                raw = response.json()
+
+                # Adapt the nested real payload to the flat shape the parsers expect.
+                data = self._normalize_payload(raw)
 
                 # Parse snapshot-level metrics
                 snapshot = self._parse_snapshot(symbol, data, now)
@@ -180,6 +199,53 @@ class GEXMetrixFetcher(BaseFetcher):
         return True
 
     # ── Parsing helpers ───────────────────────────────────────────────────────
+
+    def _normalize_payload(self, raw: dict) -> dict:
+        """Adapt the real GEXMetrix payload to the flat shape the parsers expect.
+
+        Actual API response (as of 2026-08):
+            { "symbol", "filename", "uploaded", "data": { "data": {
+                "options": [ { "option": "SPY260731C00746000", "gamma",
+                               "open_interest", "volume", ... }, ... ],
+                "current_price": 746.71, ...
+        }}}
+
+        The legacy parsers (``_parse_snapshot`` / ``_parse_strikes``) expect a
+        flat ``{"options": [...], "spot": float}`` where each option already
+        carries ``strike`` and ``type``. This adapter extracts the nested
+        ``data.data`` and decodes the OCC option symbol into strike + type.
+
+        OCC code: <SYMBOL><YYMMDD><C|P><strike-as-int>
+        Strike is encoded padded; real price = int(strike) / 1000.
+        """
+        inner = raw or {}
+        data = inner.get("data") or {}
+        if isinstance(data, dict) and isinstance(data.get("data"), dict):
+            data = data["data"]
+
+        options = data.get("options") or []
+        spot = data.get("current_price") or data.get("spot") or data.get("underlying_price") or 0.0
+
+        _occ = re.compile(r"^[A-Z]+\d{6}([CP])(\d+)$")
+        normalized_options = []
+        for opt in options:
+            if not isinstance(opt, dict):
+                continue
+            code = opt.get("option") or ""
+            m = _occ.match(code)
+            if m:
+                opt["strike"] = int(m.group(2)) / 1000.0
+                opt["type"] = "CALL" if m.group(1) == "C" else "PUT"
+            # map renamed fields to the legacy names the parsers read
+            if opt.get("open_interest") is not None and "oi" not in opt:
+                opt["oi"] = opt["open_interest"]
+            normalized_options.append(opt)
+
+        return {
+            "options": normalized_options,
+            "spot": float(spot or 0.0),
+            "underlying_price": float(spot or 0.0),
+        }
 
     def _parse_snapshot(
         self, symbol: str, raw: dict, ts: datetime

@@ -83,7 +83,15 @@ class Settings(BaseSettings):
             "crypto": self.crypto_api_key,
             "darkpool": self.darkpool_api_key,
         }
-        return not bool(key_map.get(source))
+        # Only mock when the source is in key_map AND its key is empty/absent.
+        # Public sources (VIX, CBOE, yfinance, SqueezeMetrics, ...) that map to a
+        # key name NOT in key_map (e.g. "none" / "") must return False so they
+        # always hit the live path and only fall back to mock on fetch failure.
+        # Previous `not bool(key_map.get(source))` was inverted: any key not in
+        # the map returned True (mock) → all public sources ran in mock mode.
+        if source not in key_map:
+            return False
+        return not bool(key_map[source])
 
 
 # Singleton instance — import and use directly

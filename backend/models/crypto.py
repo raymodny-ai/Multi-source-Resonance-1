@@ -18,6 +18,12 @@ class CryptoSignalBase(BaseModel):
     funding_anomaly: Optional[bool] = Field(None, description="Funding anomaly flag")
     oi_crash: Optional[bool] = Field(None, description="OI crash flag")
     leverage_cleanup: Optional[bool] = Field(None, description="Leverage cleanup signal")
+    # CoinGecko market-price enrichment (2026-08-01)
+    btc_price: Optional[float] = Field(None, description="BTC spot price (USD)")
+    btc_24h_change: Optional[float] = Field(None, description="BTC 24h % change")
+    btc_volume: Optional[float] = Field(None, description="BTC 24h volume (USD)")
+    eth_price: Optional[float] = Field(None, description="ETH spot price (USD)")
+    eth_24h_change: Optional[float] = Field(None, description="ETH 24h % change")
 
 
 class CryptoSignalCreate(CryptoSignalBase):

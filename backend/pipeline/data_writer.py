@@ -274,8 +274,9 @@ class DataWriter:
             """INSERT OR REPLACE INTO crypto_derivatives
                (timestamp, btc_funding_rate, btc_oi, oi_change_1h,
                 liquidation_spike, cryptoquant_elr, funding_anomaly,
-                oi_crash, leverage_cleanup)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                oi_crash, leverage_cleanup,
+                btc_price, btc_24h_change, btc_volume, eth_price, eth_24h_change)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 ts,
                 data.get("btc_funding_rate", 0),
@@ -286,6 +287,11 @@ class DataWriter:
                 data.get("funding_anomaly"),
                 data.get("oi_crash"),
                 data.get("leverage_cleanup"),
+                data.get("btc_price"),
+                data.get("btc_24h_change"),
+                data.get("btc_volume"),
+                data.get("eth_price"),
+                data.get("eth_24h_change"),
             ),
         )
         return 1

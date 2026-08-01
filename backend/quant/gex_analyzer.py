@@ -55,6 +55,15 @@ async def analyze(data: Optional[dict] = None) -> dict:
         return _default_result()
 
     try:
+        # GEXMetrixFetcher.fetch() returns {"snapshots": [...], "strikes": [...]}.
+        # Analyzers expect a flat snapshot dict (net_gex, call_wall, ...). Adapt:
+        # if the payload carries a snapshots array, analyze the latest snapshot
+        # (first element) so the GEX dimension scores real data instead of 0.
+        if isinstance(data, dict) and data.get("snapshots"):
+            snaps = data["snapshots"]
+            if isinstance(snaps, list) and snaps:
+                data = snaps[-1]  # latest snapshot (ASC appended order if present)
+
         return _compute_gex_analysis(data)
     except Exception as e:
         logger.error(f"GEX analysis failed: {e}", exc_info=True)
