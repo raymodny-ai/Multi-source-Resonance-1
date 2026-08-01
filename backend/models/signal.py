@@ -16,7 +16,7 @@ class SignalAlertBase(BaseModel):
     crypto_score: Optional[float] = Field(None, description="Crypto dimension contribution (0-2.0)")
     darkpool_score: Optional[float] = Field(None, description="Darkpool dimension contribution (0-2.0)")
     alert_level: str = Field(..., description="'LEVEL_1' | 'LEVEL_2' | 'LEVEL_3'")
-    hawkes_branching_ratio: Optional[float] = Field(None, ge=0, le=1, description="Hawkes self-exciting branching ratio")
+    hawkes_branching_ratio: Optional[float] = Field(None, ge=0, description="Hawkes self-exciting branching ratio (may be >1 in a supercritical/explosive regime)")
     details: Optional[str] = Field(None, description="JSON details")
     acknowledged: bool = Field(False, description="Whether alert has been acknowledged")
     outcome: Optional[str] = Field(None, description="Signal outcome: 'profit' / 'loss' / NULL")

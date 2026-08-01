@@ -358,7 +358,10 @@ class TestHawkesModel:
         events = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
         result = model.fit(events)
         assert "branching_ratio" in result
-        assert 0 <= result["branching_ratio"] <= 1
+        # Branching ratio is no longer clamped to [0,1] — it may exceed 1 in a
+        # supercritical regime. Only the lower bound (no negative self-excitation)
+        # is enforced.
+        assert result["branching_ratio"] >= 0
         assert result["n_events"] == 10
 
     def test_fit_too_few_events(self):

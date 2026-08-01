@@ -64,7 +64,9 @@ class HawkesAR1Model:
         self.beta = beta
         self._fitted = False
         self._branching_ratio = 0.0
+        self._n_events = 0
         self._residuals: Optional[np.ndarray] = None
+        self._y_target: Optional[np.ndarray] = None
 
     def fit(self, event_times: np.ndarray) -> dict:
         """Fit the AR(1) model to observed event times using OLS.
@@ -76,7 +78,10 @@ class HawkesAR1Model:
             event_times: Array of event timestamps (sorted, in any consistent unit).
 
         Returns:
-            dict with fitted parameters: branching_ratio, a, b, residuals_std
+            dict with fitted parameters: branching_ratio, a, b, residuals_std.
+            The branching ratio is NOT clamped to [0,1]: values >1 indicate a
+            supercritical (explosive) self-exciting regime, which is meaningful
+            in Hawkes processes (branching ratio n = alpha / beta).
         """
         if event_times is None or len(event_times) < 3:
             logger.warning("Need at least 3 events for AR(1) fitting")
@@ -90,14 +95,39 @@ class HawkesAR1Model:
 
         event_times = np.asarray(event_times, dtype=float)
         event_times = np.sort(event_times)
+        self._n_events = len(event_times)
 
-        # Compute inter-arrival times
-        inter_arrivals = np.diff(event_times)
+        # Deduplicate timestamps: identical times (e.g. same-second signals)
+        # produce zero inter-arrival times, which explode to 1/epsilon intensities
+        # and dominate the OLS fit. Collapse runs of equal timestamps into one.
+        unique_times = np.unique(event_times)
+        if len(unique_times) < 3:
+            # Not enough distinct events after dedup to fit AR(1) meaningfully.
+            self._branching_ratio = 0.0
+            return {
+                "branching_ratio": 0.0,
+                "a": float(np.mean(unique_times)) if len(unique_times) else self.mu,
+                "b": 0.0,
+                "residuals_std": 0.0,
+                "n_events": self._n_events,
+            }
 
-        # Convert to intensity proxies (inverse of inter-arrival time)
-        # Avoid division by zero
-        epsilon = 1e-10
-        intensities = 1.0 / (inter_arrivals + epsilon)
+        # Compute inter-arrival times (all > 0 after dedup)
+        inter_arrivals = np.diff(unique_times)
+
+        # Scale-aware epsilon: guard any residual zero/underflow without
+        # dominating typical inter-arrival magnitudes. 1e-10 was far too small
+        # and turned genuine zero diffs into 1e10 outliers.
+        scale = float(np.median(inter_arrivals)) if len(inter_arrivals) else 1.0
+        epsilon = max(1e-9, scale * 1e-6)
+        raw_intensities = 1.0 / (inter_arrivals + epsilon)
+
+        # Log1p transform of intensities before OLS. The raw 1/inter-arrival
+        # scale spans many orders of magnitude (an explosive gap vs. a quiet one),
+        # so a direct OLS on raw values is dominated by the extreme tail and
+        # produces near-zero / unstable slopes. log1p compresses the range and
+        # yields a robust AR(1) persistence estimate (per QA report #3).
+        intensities = np.log1p(raw_intensities)
 
         # AR(1) regression: lambda(t) = a + b * lambda(t-1)
         # Y = intensities[1:], X = intensities[:-1]
@@ -107,7 +137,7 @@ class HawkesAR1Model:
                 "a": float(np.mean(intensities)),
                 "b": 0.0,
                 "residuals_std": 0.0,
-                "n_events": len(event_times),
+                "n_events": self._n_events,
             }
 
         Y = intensities[1:]
@@ -124,8 +154,10 @@ class HawkesAR1Model:
             a_hat = float(np.mean(intensities))
             b_hat = 0.0
 
-        # Clamp branching ratio to [0, 1]
-        b_hat = max(0.0, min(1.0, b_hat))
+        # Lower-bound only: negative self-excitation is not meaningful, but we
+        # deliberately DO NOT cap the upper end — branching ratio >1 represents
+        # a supercritical (explosive) regime the frontend is designed to surface.
+        b_hat = max(0.0, b_hat)
 
         # Ensure stationarity (a > 0 for positive intensity)
         a_hat = max(0.0, a_hat)
@@ -138,17 +170,18 @@ class HawkesAR1Model:
         self._fitted = True
         self._branching_ratio = b_hat
         self._residuals = resid
+        self._y_target = Y
 
-        # Update model parameters
-        self.mu = a_hat
-        self.alpha = b_hat  # In AR(1), branching ratio = self-excitation coefficient
+        # Do NOT overwrite self.alpha (the configured jump-size parameter) with
+        # the AR(1) coefficient. The fitted branching ratio is tracked separately
+        # in self._branching_ratio and reported on its own.
 
         return {
             "branching_ratio": round(b_hat, 4),
             "a": round(a_hat, 6),
             "b": round(b_hat, 4),
             "residuals_std": round(resid_std, 6),
-            "n_events": len(event_times),
+            "n_events": self._n_events,
         }
 
     def predict_intensity(self, n_steps: int = 10) -> np.ndarray:
@@ -160,20 +193,24 @@ class HawkesAR1Model:
         Returns:
             Array of predicted intensity values.
         """
+        # Use the fitted AR(1) self-excitation coefficient where available,
+        # otherwise fall back to the configured jump-size alpha.
+        a_coef = self._branching_ratio if self._fitted else self.alpha
         if not self._fitted:
             # Use initial parameters
             intensities = np.zeros(n_steps)
             intensities[0] = self.mu
             for t in range(1, n_steps):
-                intensities[t] = self.mu + self.alpha * intensities[t - 1]
+                intensities[t] = self.mu + a_coef * intensities[t - 1]
             return intensities
 
-        # Start from steady state
-        steady_state = self.mu / (1.0 - self.alpha) if self.alpha < 1.0 else self.mu
+        # Start from steady state (branching ratio >= 1 => no finite steady
+        # state; fall back to baseline)
+        steady_state = self.mu / (1.0 - a_coef) if a_coef < 1.0 else self.mu
         intensities = np.zeros(n_steps)
         intensities[0] = steady_state
         for t in range(1, n_steps):
-            intensities[t] = self.mu + self.alpha * intensities[t - 1]
+            intensities[t] = self.mu + a_coef * intensities[t - 1]
 
         return intensities
 
@@ -189,9 +226,10 @@ class HawkesAR1Model:
         Returns:
             Probability in [0, 1] of a signal occurring.
         """
+        a_coef = self._branching_ratio if self._fitted else self.alpha
         if current_intensity is None:
-            if self._fitted and self.alpha < 1.0:
-                current_intensity = self.mu / (1.0 - self.alpha)
+            if self._fitted and a_coef < 1.0:
+                current_intensity = self.mu / (1.0 - a_coef)
             else:
                 current_intensity = self.mu
 
@@ -217,6 +255,14 @@ class HawkesAR1Model:
 
         Returns:
             dict with model parameters and regime classification.
+            - branching_ratio: fitted AR(1) self-excitation coefficient (may be
+              >1 in a supercritical / explosive regime)
+            - self_excitation_intensity: the fitted branching ratio (same value),
+              exposed under this name for the Hawkes-process interpretation
+            - decay_rate: configured beta (the AR(1) approximation does not fit a
+              separate decay parameter; this is the initial decay constant)
+            - confidence: R^2 of the AR(1) fit (fraction of intensity variance
+              explained), meaningful in [0,1] for normal residual noise.
         """
         if not self._fitted:
             import copy
@@ -224,21 +270,35 @@ class HawkesAR1Model:
             result["baseline_intensity"] = self.mu
             result["self_excitation_intensity"] = self.alpha
             result["decay_rate"] = self.beta
+            result["n_events"] = self._n_events
             return result
 
         br = self._branching_ratio
         sig_prob = self.signal_probability()
         regime = self.get_regime()
 
+        # Confidence = R^2 of the AR(1) fit in the transformed space. This is a
+        # genuine goodness-of-fit metric in [0,1] (what fraction of target
+        # variance the AR(1) model explains), unlike the old
+        # 1 - std/mean(|resid|) which collapses to ~0 for any normal residual.
+        confidence = 0.0
+        if self._residuals is not None and self._y_target is not None and len(self._residuals) > 0:
+            ss_res = float(np.sum(self._residuals ** 2))
+            y = self._y_target
+            ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+            if ss_tot > 0:
+                r2 = 1.0 - (ss_res / ss_tot)
+                confidence = max(0.0, min(1.0, r2))
+
         return {
             "branching_ratio": round(br, 4),
             "baseline_intensity": round(self.mu, 6),
-            "self_excitation_intensity": round(self.alpha, 4),
+            "self_excitation_intensity": round(br, 4),
             "decay_rate": round(self.beta, 4),
             "signal_probability": round(sig_prob, 4),
             "regime": regime,
-            "confidence": round(max(0.0, min(1.0, 1.0 - (np.std(self._residuals) / (np.mean(np.abs(self._residuals)) + 1e-10)))) if self._residuals is not None and len(self._residuals) > 0 else 0.0, 4),
-            "n_events": len(self._residuals) + 1 if self._residuals is not None else 0,
+            "confidence": round(confidence, 4),
+            "n_events": self._n_events,
         }
 
 

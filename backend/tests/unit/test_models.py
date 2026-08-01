@@ -294,14 +294,27 @@ class TestSignalAlertModel:
                 alert_level="LEVEL_1",
             )
 
-    def test_hawkes_branching_ratio_bounds(self):
+    def test_hawkes_branching_ratio_supercritical_accepted(self):
         from backend.models.signal import SignalAlertCreate
+        # Branching ratio >1 (supercritical / explosive Hawkes regime) is now
+        # valid per the frontend contract — it must NOT raise ValidationError.
+        s = SignalAlertCreate(
+            trigger_time=datetime.now(timezone.utc),
+            total_score=2.0,
+            alert_level="LEVEL_1",
+            hawkes_branching_ratio=1.5,  # > 1 : allowed
+        )
+        assert s.hawkes_branching_ratio == 1.5
+
+    def test_hawkes_branching_ratio_negative_rejected(self):
+        from backend.models.signal import SignalAlertCreate
+        # Negative self-excitation is not meaningful — still rejected.
         with pytest.raises(ValidationError):
             SignalAlertCreate(
                 trigger_time=datetime.now(timezone.utc),
                 total_score=2.0,
                 alert_level="LEVEL_1",
-                hawkes_branching_ratio=1.5,  # > 1
+                hawkes_branching_ratio=-0.5,  # < 0 : rejected
             )
 
     def test_full_alert_with_id(self):
