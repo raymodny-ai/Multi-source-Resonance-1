@@ -307,14 +307,18 @@ class TestDarkpoolFetcher:
 
         live = await fetcher._fetch_squeezemetrics()
         assert live["dix_value"] == 46.0
+        # Short Ratio has no free source — stays None (needs paid key).
         assert live["chartexchange_short_ratio"] is None
+        # Slopes need >=3 price points; the 2-row fixture yields None.
         assert live["stockgrid_20d_slope"] is None
         assert live["stockgrid_60d_slope"] is None
-        assert live["v_net"] is None
-        assert live["ema_fast_5"] is None
-        assert live["ema_slow_20"] is None
-        assert live["zero_cross_signal"] is None
-        assert live["momentum_reversal_signal"] is None
+        # 2026-08-02: v_net/EMA/zero-cross are now computed from the real DIX
+        # series (DIX 46 -> v_net = (46-50)*20 = -80), not hardcoded None.
+        assert live["v_net"] == -80.0
+        assert live["ema_fast_5"] is not None
+        assert live["ema_slow_20"] is not None
+        assert live["zero_cross_signal"] in ("bullish_cross", "bearish_cross")
+        assert live["momentum_reversal_signal"] is None or live["momentum_reversal_signal"].startswith("reversal")
 
 
 # ===========================================================================
