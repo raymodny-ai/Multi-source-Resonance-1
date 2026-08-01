@@ -306,8 +306,36 @@ class DataWriter:
         self, conn, data: dict, now: str,
         is_mock: bool = False, mock_reason: Optional[str] = None,
     ) -> int:
-        """Insert crypto derivatives snapshot."""
+        """Insert crypto derivatives snapshot.
+
+        2026-08-02: computes oi_change_1h from the crypto_oi_history snapshot
+        table (current OI vs the snapshot closest to 60 minutes earlier) and
+        records a new OI-history row. This replaces the FIX-13 hardcoded NULL:
+        FIX-13 gated OI change behind available history; history now exists.
+        """
         ts = data.get("_meta", {}).get("fetched_at", now)
+        btc_oi = data.get("btc_oi")
+        btc_price = data.get("btc_price")
+
+        # Compute OI Δ 1h from real prior snapshots (history now accumulated).
+        oi_change_1h = data.get("oi_change_1h")
+        if oi_change_1h is None and btc_oi is not None:
+            try:
+                cursor = await conn.execute(
+                    """SELECT btc_oi FROM crypto_oi_history
+                       WHERE timestamp <= ?
+                       ORDER BY ABS(ROUND((julianday(?) - julianday(timestamp)) * 1440 - 60)) ASC
+                       LIMIT 1""",
+                    (ts, ts),
+                )
+                row = await cursor.fetchone()
+                if row and row[0]:
+                    prior = float(row[0])
+                    if prior:
+                        oi_change_1h = (btc_oi - prior) / prior
+            except Exception as e:
+                self.logger.warning(f"crypto OI Δ 1h computation failed: {e}")
+
         await conn.execute(
             """INSERT OR REPLACE INTO crypto_derivatives
                (timestamp, btc_funding_rate, btc_oi, oi_change_1h,
@@ -320,7 +348,7 @@ class DataWriter:
                 ts,
                 data.get("btc_funding_rate", 0),
                 data.get("btc_oi"),
-                data.get("oi_change_1h"),
+                oi_change_1h,
                 data.get("liquidation_spike"),
                 data.get("cryptoquant_elr"),
                 data.get("funding_anomaly"),
@@ -335,6 +363,16 @@ class DataWriter:
                 mock_reason,
             ),
         )
+
+        # Record OI snapshot for future Δ computations (2026-08-02).
+        if btc_oi is not None:
+            mark = data.get("btc_mark")
+            await conn.execute(
+                """INSERT OR REPLACE INTO crypto_oi_history
+                   (timestamp, btc_oi, btc_price, btc_mark)
+                   VALUES (?, ?, ?, ?)""",
+                (ts, btc_oi, btc_price, mark),
+            )
         return 1
 
     # ── Validation audit log writer ────────────────────────────────────────────

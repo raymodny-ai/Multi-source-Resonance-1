@@ -360,6 +360,20 @@ CREATE TABLE IF NOT EXISTS crypto_derivatives (
     eth_24h_change     REAL
 );
 
+-- Crypto OI history snapshots (for OI Δ 1h computation)
+-- 2026-08-02: added so oi_change_1h can be computed from real prior
+-- OI snapshots instead of being hardcoded NULL (FIX-13). Writer stores one
+-- row per pipeline cycle; oi_change_1h is derived by comparing the current
+-- OI to the snapshot closest to 60 minutes earlier.
+CREATE TABLE IF NOT EXISTS crypto_oi_history (
+    timestamp   DATETIME PRIMARY KEY,
+    btc_oi      REAL NOT NULL,
+    btc_price   REAL,
+    btc_mark    REAL
+);
+CREATE INDEX IF NOT EXISTS idx_crypto_oi_history_ts
+    ON crypto_oi_history (timestamp ASC);
+
 -- ============================================================
 -- Signal & Audit Domain (3 tables)
 -- ============================================================

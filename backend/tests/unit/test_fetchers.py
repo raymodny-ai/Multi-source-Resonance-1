@@ -246,21 +246,34 @@ class TestCryptoFetcher:
 
     @pytest.mark.asyncio
     async def test_fetch_returns_result(self):
-        """Hyperliquid live output never fabricates unavailable OI signals."""
+        """Hyperliquid live output never fabricates unavailable OI signals.
+
+        2026-08-02: updated for the metaAndAssetCtxs shape (openInterest,
+        funding, markPx in the per-asset context) that replaced the old
+        meta endpoint + ozSum (which was always null).
+        """
         from backend.fetchers.crypto_fetcher import CryptoFetcher
 
         config = _make_settings()
         fetcher = CryptoFetcher(config)
         fetcher._post_json = AsyncMock(side_effect=[
-            {"universe": [{"name": "BTC", "ozSum": "25000"}]},
-            [{"fundingRate": "0.002"}],
+            [  # metaAndAssetCtxs -> [universe, asset_ctxs]
+                {"universe": [{"name": "BTC"}]},
+                [{"openInterest": "25000", "markPx": "60000", "funding": "0.002"}],
+            ],
         ])
-        fetcher._fetch_coingecko = AsyncMock(return_value={})
+        fetcher._fetch_coingecko = AsyncMock(return_value={
+            "btc_price": 60000.0,
+            "btc_24h_change": -1.0,
+            "btc_volume": 1.2e10,
+        })
 
         result = await fetcher.fetch()
         assert result["btc_funding_rate"] == 0.002
         assert result["btc_oi"] == 25000.0
-        assert result["oi_change_1h"] is None
+        # ELR proxy = (oi * mark) / (volume/24) = (25000*60000) / (1.2e10/24)
+        assert result["cryptoquant_elr"] is not None
+        assert result["oi_change_1h"] is None  # computed by DataWriter
         assert result["oi_crash"] is False
         assert result["liquidation_spike"] is False
         assert result["leverage_cleanup"] is True

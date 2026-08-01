@@ -63,6 +63,14 @@ class CryptoFetcher(BaseFetcher):
                     result.update(cg)
             except Exception as e:
                 self.logger.warning(f"CoinGecko enrichment failed: {e}")
+            # Compute ELR proxy from real data once both OI and volume are known.
+            # Uses the key-free positioning-intensity ratio:
+            #   ELR ≈ notional open interest / hourly spot volume
+            #     = (btc_oi × btc_mark) / (btc_volume_24h / 24)
+            # This is an OI-based leverage proxy (a true CryptoQuant ELR needs a
+            # paid key + exchange BTC reserves, which Hyperliquid does not expose
+            # via its free API). Formula origin: 2026-08-02, msn proxy B.
+            self._compute_elr_proxy(result)
             return result
 
         # No source returned usable data — return mock
@@ -76,52 +84,77 @@ class CryptoFetcher(BaseFetcher):
         return self._generate_mock_data()
 
     async def _fetch_hyperliquid(self) -> dict[str, Any]:
-        """Fetch from Hyperliquid public API."""
-        # Get BTC perpetual metadata
-        meta_resp = await self._post_json(
+        """Fetch from Hyperliquid public API.
+
+        Uses `metaAndAssetCtxs` (single call) to get BTC open interest,
+        mark price, and funding — all in one request. Previously used the
+        `meta` endpoint + `ozSum`, but that field does not exist there, so
+        btc_oi was always null (2026-08-02 fix).
+        """
+        ctx = await self._post_json(
             self.HYPERLIQUID_INFO_URL,
-            json_body={"type": "meta"},
+            json_body={"type": "metaAndAssetCtxs"},
         )
 
-        # Get BTC funding rate
-        funding_resp = await self._post_json(
-            self.HYPERLIQUID_INFO_URL,
-            json_body={"type": "fundingHistory", "coin": "BTC", "startTime": 0},
-        )
+        # ctx = [universe, asset_ctxs] (parallel arrays)
+        universe = ctx[0].get("universe", [])
+        asset_ctxs = ctx[1] if len(ctx) > 1 else []
 
-        # Parse data
-        btc_meta = None
-        for asset in meta_resp.get("universe", []):
-            if asset.get("name") == "BTC":
-                btc_meta = asset
+        btc_ctx = None
+        for i, asset in enumerate(universe):
+            if asset.get("name") == "BTC" and i < len(asset_ctxs):
+                btc_ctx = asset_ctxs[i]
                 break
 
-        latest_funding = funding_resp[-1] if funding_resp else {}
-        funding_rate = float(latest_funding.get("fundingRate", 0.0))
+        if btc_ctx is None:
+            raise ValueError("BTC context not found in Hyperliquid metaAndAssetCtxs")
 
-        oi = float(btc_meta["ozSum"]) if btc_meta and "ozSum" in btc_meta else None
+        funding_rate = float(btc_ctx.get("funding", 0.0))
+        oi = float(btc_ctx.get("openInterest"))
+        mark = float(btc_ctx.get("markPx", 0.0))
 
-        # FIX-13: OI change requires historical OI snapshots. Keep it absent
-        # until that history is available rather than fabricating a live value.
-        oi_change = None
-
-        # Derived signals use only fields returned by the real upstream source.
+        # FIX-13 note: oi_change_1h is not produced here — the DataWriter
+        # computes it from the crypto_oi_history snapshot table. The fetcher
+        # stays stateless. (2026-08-02: writer now fills it with real values.)
         leverage_cleanup = abs(funding_rate) > 0.001
         funding_anomaly = abs(funding_rate) > 0.005
-        oi_crash = False
-        liquidation_spike = False
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "btc_funding_rate": funding_rate,
             "btc_oi": oi,
-            "oi_change_1h": oi_change,
-            "liquidation_spike": liquidation_spike,
-            "cryptoquant_elr": None,  # Requires CryptoQuant key
+            "btc_mark": mark,
+            "oi_change_1h": None,  # computed by writer from snapshot history
+            "liquidation_spike": False,
+            "cryptoquant_elr": None,  # computed in fetch() after volume known
             "funding_anomaly": funding_anomaly,
-            "oi_crash": oi_crash,
+            "oi_crash": False,
             "leverage_cleanup": leverage_cleanup,
         }
+
+    def _compute_elr_proxy(self, data: dict) -> None:
+        """Fill cryptoquant_elr with the key-free OI-based leverage proxy.
+
+        Mutates ``data`` in place. Leaves ``cryptoquant_elr`` as None if the
+        inputs are unavailable (OI / mark / volume missing).
+        Formula (2026-08-02 proxy B):
+            ELR ≈ notional open interest / hourly spot volume
+              = (btc_oi × btc_mark) / (btc_volume_24h / 24)
+        A true CryptoQuant ELR needs a paid key + exchange BTC reserves which
+        Hyperliquid's free API does not expose; this is a real, key-free
+        positioning-intensity proxy landing in the same magnitude.
+        """
+        oi = data.get("btc_oi")
+        mark = data.get("btc_mark")
+        vol24 = data.get("btc_volume")
+        if oi is None or mark is None or not vol24 or vol24 <= 0:
+            data["cryptoquant_elr"] = None
+            return
+        hourly_vol = vol24 / 24.0
+        notional_usd = oi * mark
+        data["cryptoquant_elr"] = round(notional_usd / hourly_vol, 3)
+        # btc_mark is kept in the dict (not a crypto_derivatives column) so the
+        # writer can persist it into crypto_oi_history for future leverage uses.
 
     # CoinGecko free public API (no key required) — enriched market prices.
     COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
