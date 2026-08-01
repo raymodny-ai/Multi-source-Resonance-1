@@ -24,7 +24,7 @@ class SqueezeMetricsFetcher(BaseFetcher):
 
     @property
     def _mock_mode_key(self) -> str:
-        return "gexmetrix"  # Public data, no API key needed
+        return ""  # public data — no key gating (must hit live path, mock only on fetch failure)
 
     CSV_URL = "https://squeezemetrics.com/monitor/dix"
 

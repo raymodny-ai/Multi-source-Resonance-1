@@ -29,7 +29,7 @@ class PutCallFetcher(BaseFetcher):
     def _mock_mode_key(self) -> str:
         # CBOE is free public data, but the URL changed and the JSON shape
         # is not stable. We attempt real first, fall back to mock.
-        return "gexmetrix"
+        return ""  # public data — no key gating (must hit live path, mock only on fetch failure)
 
     CBOE_PCR_URL = "https://cdn.cboe.com/api/us/daily_market_statistics/spx/pc_data.json"
 

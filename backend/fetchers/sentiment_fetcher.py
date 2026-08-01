@@ -34,7 +34,7 @@ class SentimentFetcher(BaseFetcher):
         # This key is only checked by the base ``_is_mock_mode`` shortcut
         # (which now correctly returns False for sources not in key_map),
         # so the live path is attempted regardless.
-        return "gexmetrix"
+        return ""  # public data — no key gating (must hit live path, mock only on fetch failure)
 
     CNN_FNG_URL = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
     ALTME_FNG_URL = "https://api.alternative.me/fng/?limit=1&format=json"

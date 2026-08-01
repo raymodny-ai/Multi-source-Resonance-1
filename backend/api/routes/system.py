@@ -88,19 +88,31 @@ async def source_status():
         per_source_state = {}
 
     # Map to standard SourceStatus format
+    # 2026-08-02: daily-close history sources (vix_term_structure with FRED
+    # 1-day lag, dark_pool_history) only update on trading days — they
+    # legitimately go stale over weekends + holiday lags. Give them a wider
+    # freshness window so a healthy daily source isn't falsely flagged
+    # degraded just because the market is closed. Intraday sources keep the
+    # strict <24h bar.
+    DAYLY_SOURCES = {"vix_term_structure", "dark_pool_history"}
     result = []
     for src in sources:
         name = src.get("source") or ""
         age_minutes = src.get("age_minutes") or 9999
         total_rows = src.get("total_rows")
-        status = "online" if age_minutes < 1440 else ("degraded" if age_minutes < 4320 else "offline")
+        if name in DAYLY_SOURCES:
+            # Daily close: online < 4 days (Fri close + weekend + FRED lag)
+            online_lim, degraded_lim = 4 * 1440, 8 * 1440
+        else:
+            online_lim, degraded_lim = 1440, 4320
+        status = "online" if age_minutes < online_lim else ("degraded" if age_minutes < degraded_lim else "offline")
         overlay = per_source_state.get(name.lower(), {})
         # Availability should reflect whether we actually hold data, not just
         # freshness. A source with rows but stale latest gets a floor so the
         # UI doesn't report 0% when history exists (e.g. daily-close sources
         # that only update on trading days).
-        if age_minutes < 1440:
-            avail = round(max(0, 100 - (age_minutes / 1440 * 100)), 1)
+        if age_minutes < online_lim:
+            avail = round(max(0, 100 - (age_minutes / online_lim * 100)), 1)
         elif total_rows and total_rows > 0:
             avail = 25.0  # data present, just stale
         else:

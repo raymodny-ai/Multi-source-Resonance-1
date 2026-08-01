@@ -31,7 +31,7 @@ class StockGridFetcher(BaseFetcher):
 
     @property
     def _mock_mode_key(self) -> str:
-        return "gexmetrix"  # Public data, no API key needed
+        return ""  # public data — no key gating (must hit live path, mock only on fetch failure)
 
     # Symbols to monitor
     SYMBOLS = ["SPY", "QQQ", "IWM"]

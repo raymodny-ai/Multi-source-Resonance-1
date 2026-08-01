@@ -25,7 +25,7 @@ class TradierFetcher(BaseFetcher):
 
     @property
     def _mock_mode_key(self) -> str:
-        return "gexmetrix"  # Requires TRADIER_API_KEY env var
+        return ""  # public data — no key gating (must hit live path, mock only on fetch failure)
 
     TRADIER_API_URL = "https://api.tradier.com/v1/markets/options"
     TRADIER_CHAIN_URL = "https://api.tradier.com/v1/markets/options/chains"

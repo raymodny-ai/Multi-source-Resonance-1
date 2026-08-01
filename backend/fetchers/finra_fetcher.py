@@ -28,7 +28,7 @@ class FinraFetcher(BaseFetcher):
 
     @property
     def _mock_mode_key(self) -> str:
-        return "gexmetrix"  # FINRA is public data
+        return ""  # public data — no key gating (must hit live path, mock only on fetch failure)
 
     FINRA_API_URL = "https://api.finra.org/data/groups/shortInterest"
 

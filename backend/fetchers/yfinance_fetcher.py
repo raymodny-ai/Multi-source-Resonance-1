@@ -49,7 +49,7 @@ class YFinanceFetcher(BaseFetcher):
 
     @property
     def _mock_mode_key(self) -> str:
-        return "gexmetrix"  # yfinance is public, no key needed
+        return ""  # public data — no key gating (must hit live path, mock only on fetch failure)
 
     def _is_mock_mode(self) -> bool:
         """yfinance is public — never in mock mode unless explicitly forced."""

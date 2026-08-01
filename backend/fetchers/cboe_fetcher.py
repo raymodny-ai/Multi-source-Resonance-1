@@ -42,7 +42,7 @@ class CBOEFetcher(BaseFetcher):
 
     @property
     def _mock_mode_key(self) -> str:
-        return "gexmetrix"  # CBOE public data, no special key needed
+        return ""  # public data — no key gating (must hit live path, mock only on fetch failure)
 
     def _is_mock_mode(self) -> bool:
         """CBOE data is public — never in mock mode unless explicitly forced."""

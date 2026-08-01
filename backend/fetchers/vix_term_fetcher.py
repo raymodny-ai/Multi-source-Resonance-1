@@ -48,7 +48,7 @@ class VIXTermFetcher(BaseFetcher):
 
     @property
     def _mock_mode_key(self) -> str:
-        return "gexmetrix"  # public APIs — no key needed
+        return ""  # public data — no key gating (must hit live path, mock only on fetch failure)
 
     # ── CBOE public CSV sources (replaces the retired daily_market_statistics JSON)
     #    All return HTTP 200 with the default client UA.

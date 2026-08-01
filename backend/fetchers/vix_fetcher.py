@@ -57,7 +57,7 @@ class VIXFetcher(BaseFetcher):
 
     @property
     def _mock_mode_key(self) -> str:
-        return "gexmetrix"  # VIX uses public FRED data, no key needed
+        return ""  # public data — no key gating (must hit live path, mock only on fetch failure)
 
     def _is_mock_mode(self) -> bool:
         return False  # Always try real FRED first
