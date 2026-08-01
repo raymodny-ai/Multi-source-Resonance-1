@@ -27,6 +27,30 @@ logger = logging.getLogger(__name__)
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 
+# FIX-27: the scheduler runs independently of the FastAPI app, so we
+# can't simply read ``app.state.pipeline`` from inside a job function.
+# main.py calls ``set_active_pipeline(pipeline)`` after start_scheduler();
+# jobs then call ``_get_active_pipeline()`` to check ``is_writing``. The
+# reference is intentionally a weakref so the scheduler never extends
+# the pipeline's lifetime.
+from typing import Optional
+import weakref as _weakref
+_active_pipeline_ref: "_weakref.ref | None" = None
+
+
+def set_active_pipeline(pipeline) -> None:
+    """Register the running Pipeline instance for ``is_writing`` checks.
+
+    Called from ``main.py`` lifespan startup after the pipeline is created.
+    """
+    global _active_pipeline_ref
+    _active_pipeline_ref = _weakref.ref(pipeline)
+
+
+def _get_active_pipeline():
+    obj = _active_pipeline_ref() if _active_pipeline_ref is not None else None
+    return obj
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Job wrappers (APScheduler calls these as async functions)
@@ -40,15 +64,30 @@ async def job_verify_write_paths():
 
 
 async def job_vacuum_analyze():
-    """Daily 02:00 UTC: VACUUM + ANALYZE the database."""
+    """Daily 02:00 UTC: VACUUM + ANALYZE the database.
+
+    FIX-27: skip the run if the pipeline is currently writing — VACUUM
+    acquires an exclusive lock and would block the pipeline mid-cycle.
+    """
     logger.info("Scheduled job: vacuum_and_analyze")
+    pipeline = _get_active_pipeline()
+    if pipeline is not None and pipeline.is_writing:
+        logger.info("vacuum_and_analyze: pipeline writing, skipping")
+        return
     result = await vacuum_and_analyze()
     logger.info(f"vacuum_and_analyze result: {result}")
 
 
 async def job_archive_old_data():
-    """Daily 03:00 UTC: Archive gex_strikes data older than 180 days."""
+    """Daily 03:00 UTC: Archive gex_strikes data older than 180 days.
+
+    FIX-27: skip if pipeline writing.
+    """
     logger.info("Scheduled job: archive_old_data")
+    pipeline = _get_active_pipeline()
+    if pipeline is not None and pipeline.is_writing:
+        logger.info("archive_old_data: pipeline writing, skipping")
+        return
     result = await archive_old_data(days=180)
     logger.info(f"archive_old_data result: {result}")
 

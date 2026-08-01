@@ -33,8 +33,18 @@ export function DashboardView() {
       );
     }
     if (mockSources.length > 0) {
+      // FIX-32: the ``key`` re-mounts the banner (resetting its
+      // internal ``visible`` state) whenever the underlying mock
+      // source list changes — previously a dismissed banner stayed
+      // hidden even if the situation that triggered it changed.
+      const sigKey = mockSources.join(',');
       return (
-        <AlertBanner tone="warning" title="检测到模拟数据" dismissible>
+        <AlertBanner
+          key={`mock:${sigKey}`}
+          tone="warning"
+          title="检测到模拟数据"
+          dismissible
+        >
           以下数据源当前为模拟值：<strong>{mockSources.join(', ')}</strong>。
           实际策略执行请以真实数据为准。
         </AlertBanner>
@@ -42,7 +52,13 @@ export function DashboardView() {
     }
     if (alertLevel != null && alertLevel >= 2) {
       return (
-        <AlertBanner tone={alertLevel >= 3 ? 'danger' : 'warning'} title={`当前警报等级 LEVEL ${alertLevel}`}>
+        <AlertBanner
+          // FIX-32: re-mount on level change so a previously dismissed
+          // banner reappears if the alert escalates (e.g. LEVEL_2 → 3).
+          key={`alert:${alertLevel}`}
+          tone={alertLevel >= 3 ? 'danger' : 'warning'}
+          title={`当前警报等级 LEVEL ${alertLevel}`}
+        >
           监控到强烈共振信号，建议立即在 Signals 页面查看明细。
         </AlertBanner>
       );

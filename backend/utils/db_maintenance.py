@@ -22,25 +22,70 @@ logger = logging.getLogger(__name__)
 async def vacuum_and_analyze() -> dict:
     """Execute SQLite VACUUM + ANALYZE to reclaim space and update query planner stats.
 
+    FIX-25: VACUUM acquires an exclusive lock and conflicts with the
+    long-running pipeline. We do a WAL checkpoint first (non-exclusive),
+    then retry VACUUM with backoff — if it still can't acquire the lock
+    we just log and return ``status=deferred`` so the cron job doesn't
+    surface a confusing error.
+
     Returns a summary dict with status and timing.
     """
+    import asyncio
     db_path = settings.db_absolute_path
     start = datetime.now(timezone.utc)
 
     try:
-        # VACUUM and ANALYZE require exclusive access — use a direct sync connection
-        conn = await aiosqlite.connect(str(db_path))
+        # Always do a WAL checkpoint first — non-exclusive.
         try:
-            await conn.execute("PRAGMA journal_mode=WAL")
-            await conn.execute("VACUUM")
-            await conn.execute("ANALYZE")
-            await conn.commit()
-        finally:
-            await conn.close()
+            chk = await aiosqlite.connect(str(db_path))
+            try:
+                await chk.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                await chk.commit()
+            finally:
+                await chk.close()
+        except Exception as e:
+            logger.warning(f"WAL checkpoint before VACUUM failed: {e}")
+
+        # VACUUM requires exclusive access — retry with backoff.
+        vacuum_done = False
+        last_err: str | None = None
+        for attempt in range(3):
+            conn = await aiosqlite.connect(str(db_path))
+            try:
+                await conn.execute("PRAGMA journal_mode=WAL")
+                await conn.execute("VACUUM")
+                await conn.execute("ANALYZE")
+                await conn.commit()
+                vacuum_done = True
+                break
+            except Exception as e:
+                last_err = str(e)
+                logger.warning(
+                    f"VACUUM attempt {attempt + 1} failed: {e}; backing off"
+                )
+                await asyncio.sleep(10 * (attempt + 1))
+            finally:
+                await conn.close()
 
         elapsed = (datetime.now(timezone.utc) - start).total_seconds()
+        if not vacuum_done:
+            logger.warning(
+                f"VACUUM deferred after 3 attempts (last error: {last_err}); "
+                f"DB is still usable, just won't reclaim space this cycle"
+            )
+            return {
+                "status": "deferred",
+                "operation": "vacuum_analyze",
+                "error": last_err,
+                "elapsed_seconds": round(elapsed, 2),
+            }
+
         logger.info(f"VACUUM + ANALYZE completed in {elapsed:.2f}s")
-        return {"status": "ok", "operation": "vacuum_analyze", "elapsed_seconds": round(elapsed, 2)}
+        return {
+            "status": "ok",
+            "operation": "vacuum_analyze",
+            "elapsed_seconds": round(elapsed, 2),
+        }
 
     except Exception as e:
         logger.error(f"VACUUM + ANALYZE failed: {e}")

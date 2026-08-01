@@ -45,7 +45,7 @@ from backend.fetchers import (
 from backend.models.common import ErrorResponse, HealthCheck
 from backend.pipeline import Pipeline
 from backend.quant.pipeline_adapter import register_pipeline_analyzers_and_scorer
-from backend.utils.scheduler import start_scheduler, stop_scheduler
+from backend.utils.scheduler import start_scheduler, stop_scheduler, set_active_pipeline
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
 
@@ -124,6 +124,9 @@ async def lifespan(app: FastAPI):
 
     # Start scheduled maintenance jobs
     start_scheduler()
+    # FIX-27: register the pipeline so scheduler jobs (VACUUM, archive)
+    # can observe ``is_writing`` and skip conflicting runs.
+    set_active_pipeline(pipeline)
 
     # Start periodic data collection pipeline (background, fetch_interval_seconds)
     # 21 fetcher default 60s 太频繁 — yfinance 会限速, 改 900s (15min) 合适
@@ -187,6 +190,23 @@ app.add_middleware(
     expose_headers=["X-Request-ID", "X-Response-Time"],
     max_age=600,
 )
+
+
+# SEC-11: minimal hardening headers. Most production deployments put a
+# reverse proxy (nginx, ALB) in front of the API, so we keep these
+# small and skip the larger ``secure.py`` middleware stack to avoid
+# double-setting headers.
+@app.middleware("http")
+async def _security_headers_middleware(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Strict-Transport-Security",
+        "max-age=31536000; includeSubDomains",
+    )
+    return response
 
 # ── Global exception handlers ─────────────────────────────────────────────────
 

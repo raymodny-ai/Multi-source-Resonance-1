@@ -94,6 +94,11 @@ export function VIXView() {
           vx1={metrics?.vx1 ?? null}
           vx2={metrics?.vx2 ?? null}
           state={metrics?.term_structure_state ?? null}
+          // FIX-35: forward the backend-canonical ratio. The card now
+          // shows ``1 + term_structure_ratio`` so the chart and the
+          // history card stay consistent (both use the fetcher's
+          // ``vx_3m_proxy / vix_spot - 1`` definition).
+          termStructureRatio={metrics?.term_structure_ratio ?? null}
           loading={term.isLoading && !termData}
         />
       </div>

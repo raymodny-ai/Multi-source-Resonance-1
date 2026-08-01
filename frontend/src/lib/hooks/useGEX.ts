@@ -102,10 +102,25 @@ export function useGEXWSSync(activeSymbol: GEXSymbol) {
         typeStr === 'DATA_FETCH_COMPLETE' ||
         typeStr === 'PIPELINE_CYCLE_COMPLETE'
       ) {
-        qc.invalidateQueries({ queryKey: ['gex'] });
+        // FIX-34: invalidate only the affected symbol's queries. The
+        // previous ``['gex']`` match-all also dropped cache for every
+        // other symbol a user might have tabs/links open to, causing
+        // a visible spike of network traffic on each pipeline tick.
+        if (symbol) {
+          qc.invalidateQueries({ queryKey: ['gex', 'dashboard-view', symbol.toUpperCase()] });
+          qc.invalidateQueries({ queryKey: ['gex', 'latest', symbol.toUpperCase()] });
+          qc.invalidateQueries({ queryKey: ['gex', 'strikes', symbol.toUpperCase()] });
+          if (symbol.toUpperCase() === activeSymbol) {
+            qc.invalidateQueries({ queryKey: ['gex', 'summary'] });
+          }
+        } else {
+          // Snapshot with no symbol payload — best effort: refresh
+          // everything, since the broker didn't tell us what changed.
+          qc.invalidateQueries({ queryKey: ['gex'] });
+        }
         const ts = msg.timestamp ?? new Date().toISOString();
         setLastUpdateAt(ts);
-      } else if (symbol && symbol === activeSymbol && typeStr === 'GEX_UPDATE') {
+      } else if (symbol && symbol.toUpperCase() === activeSymbol.toUpperCase() && typeStr === 'GEX_UPDATE') {
         qc.invalidateQueries({ queryKey: queryKey });
       }
     });

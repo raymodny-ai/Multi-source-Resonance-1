@@ -29,13 +29,18 @@ export function DarkpoolHistoryChart({ history, height = 280, loading }: Props) 
         data: history.map((h) => [new Date(h.date).getTime(), h.dix_value ?? null]),
       });
       series.push({
+        // FIX-29: read the actual ratio column. The previous version
+        // plotted a derived 0/1 from ``aggregated_signal`` — that field
+        // is a flag, not a ratio, so the line was always flat at 0 with
+        // a single dot when set. Fall back to ``null`` so echarts draws
+        // a gap rather than fabricating zeros.
         name: 'Short Ratio',
         type: 'line' as const,
         smooth: true,
         showSymbol: false,
         yAxisIndex: 1,
         lineStyle: { width: 1, color: '#ef4444', type: 'dashed' },
-        data: history.map((h) => [new Date(h.date).getTime(), h.aggregated_signal ? 1 : 0]),
+        data: history.map((h) => [new Date(h.date).getTime(), h.chartexchange_short_ratio ?? null]),
       });
       const emaFast = history.map((h) => [new Date(h.date).getTime(), h.ema_fast_5 ?? null]);
       const emaSlow = history.map((h) => [new Date(h.date).getTime(), h.ema_slow_20 ?? null]);
@@ -45,7 +50,11 @@ export function DarkpoolHistoryChart({ history, height = 280, loading }: Props) 
           name: 'EMA5',
           type: 'line' as const,
           showSymbol: false,
-          yAxisIndex: 1,
+          // FIX-29: EMA lines now use the primary DIX axis (yAxisIndex: 0)
+          // so the visual relationship to DIX is preserved. Previously
+          // they were drawn on the right 0..1.5 signal axis, which
+          // squashed them into the same band as the binary signals.
+          yAxisIndex: 0,
           smooth: true,
           lineStyle: { width: 1, color: '#22c55e' },
           data: emaFast,
@@ -56,7 +65,7 @@ export function DarkpoolHistoryChart({ history, height = 280, loading }: Props) 
           name: 'EMA20',
           type: 'line' as const,
           showSymbol: false,
-          yAxisIndex: 1,
+          yAxisIndex: 0,
           smooth: true,
           lineStyle: { width: 1, color: '#f59e0b', type: 'dotted' },
           data: emaSlow,
@@ -129,9 +138,9 @@ export function DarkpoolHistoryChart({ history, height = 280, loading }: Props) 
       <div className="text-[10px] text-[var(--color-text-muted)] mt-1 text-center">
         DIX (紫) · EMA5/EMA20 交叉 (右轴) · 聚合信号 (红点)
       </div>
-      {history.length > 0 && history[0].date && (
+      {history.length > 0 && history[history.length - 1].date && (
         <div className="text-[10px] text-[var(--color-text-muted)] text-right mt-1">
-          最近：<span className="font-mono">{fmtTime(history[0].date + 'T00:00:00')}</span>
+          最近：<span className="font-mono">{fmtTime(history[history.length - 1].date + 'T00:00:00')}</span>
         </div>
       )}
     </div>

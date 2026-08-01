@@ -72,7 +72,10 @@ class Settings(BaseSettings):
     max_workers: int = 8
 
     # ── Server ────────────────────────────────────────────────────────────────
-    host: str = "0.0.0.0"
+    # SEC-09: bind 127.0.0.1 by default so a misconfigured prod box
+    # can't expose the API publicly. Operators running inside a
+    # container/VM expose this via ``MSR_HOST=0.0.0.0`` env var.
+    host: str = "127.0.0.1"
     port: int = 8524
 
     # ── Derived helpers ───────────────────────────────────────────────────────

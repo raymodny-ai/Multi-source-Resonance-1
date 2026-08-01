@@ -64,6 +64,10 @@ class Pipeline:
         self._task: Optional[asyncio.Task] = None
         self._cycle_count = 0
         self._last_cycle_report: Optional[dict] = None
+        # FIX-27: writing flag — jobs that conflict with ongoing writes
+        # (VACUUM, archive, backup) can poll this and skip their run.
+        self._is_writing: bool = False
+        self._write_lock = asyncio.Lock()
 
         # Quant analyzers registry (populated externally to avoid import conflicts)
         # Key: source_name, Value: async callable(data: dict) -> dict
@@ -500,51 +504,67 @@ class Pipeline:
         analysis_results: dict[str, dict],
         scoring_result: dict,
     ) -> dict[str, dict]:
-        """Write all results to the database. Returns write results keyed by source."""
+        """Write all results to the database. Returns write results keyed by source.
+
+        FIX-27: held under ``_write_lock`` so concurrent scheduler jobs
+        (VACUUM, archive, backup) can observe ``is_writing`` and skip
+        their run instead of racing the pipeline.
+        """
         write_results: dict[str, dict] = {}
+        async with self._write_lock:
+            self._is_writing = True
         try:
-            # Write fetcher data
-            write_results = await self.writer.write_fetch_results(collected_data)
-            logger.debug(f"[Persist] Fetcher data written: {write_results}")
+            try:
+                # Write fetcher data
+                write_results = await self.writer.write_fetch_results(collected_data)
+                logger.debug(f"[Persist] Fetcher data written: {write_results}")
 
-            # Write validation audit entries (resolve 0-row anomaly)
-            for source in collected_data:
-                await self.writer.write_validation_audit(
-                    source=source,
-                    check_type="pipeline_integrity",
-                    check_name="data_collected",
-                    passed=True,
-                    message=f"Pipeline cycle {self._cycle_count}: data collected successfully",
+                # Write validation audit entries (resolve 0-row anomaly)
+                for source in collected_data:
+                    await self.writer.write_validation_audit(
+                        source=source,
+                        check_type="pipeline_integrity",
+                        check_name="data_collected",
+                        passed=True,
+                        message=f"Pipeline cycle {self._cycle_count}: data collected successfully",
+                    )
+
+                # Write gateway snapshot
+                await self.writer.write_gateway_snapshot(
+                    source="pipeline_cycle",
+                    layer1_output={"collected_sources": list(collected_data.keys())},
+                    layer2_output=scoring_result,
+                    status="OK",
                 )
 
-            # Write gateway snapshot
-            await self.writer.write_gateway_snapshot(
-                source="pipeline_cycle",
-                layer1_output={"collected_sources": list(collected_data.keys())},
-                layer2_output=scoring_result,
-                status="OK",
-            )
+                # Write signal alert if applicable
+                alert_level = scoring_result.get("alert_level", "NONE")
+                if alert_level != "NONE":
+                    hawkes_br = await self._compute_hawkes_branching_ratio()
+                    await self.writer.write_signal_alert(
+                        total_score=scoring_result.get("total_score", 0.0),
+                        alert_level=alert_level,
+                        gex_score=scoring_result.get("gex_score"),
+                        vix_score=scoring_result.get("vix_score"),
+                        crypto_score=scoring_result.get("crypto_score"),
+                        darkpool_score=scoring_result.get("darkpool_score"),
+                        hawkes_branching_ratio=hawkes_br,
+                        details=scoring_result,
+                    )
+                    logger.info(f"[Persist] Signal alert written: {alert_level} (hawkes={hawkes_br})")
 
-            # Write signal alert if applicable
-            alert_level = scoring_result.get("alert_level", "NONE")
-            if alert_level != "NONE":
-                hawkes_br = await self._compute_hawkes_branching_ratio()
-                await self.writer.write_signal_alert(
-                    total_score=scoring_result.get("total_score", 0.0),
-                    alert_level=alert_level,
-                    gex_score=scoring_result.get("gex_score"),
-                    vix_score=scoring_result.get("vix_score"),
-                    crypto_score=scoring_result.get("crypto_score"),
-                    darkpool_score=scoring_result.get("darkpool_score"),
-                    hawkes_branching_ratio=hawkes_br,
-                    details=scoring_result,
-                )
-                logger.info(f"[Persist] Signal alert written: {alert_level} (hawkes={hawkes_br})")
-
-        except Exception as exc:
-            logger.error(f"[Persist] Persistence failed: {exc}", exc_info=True)
+            except Exception as exc:
+                logger.error(f"[Persist] Persistence failed: {exc}", exc_info=True)
+        finally:
+            async with self._write_lock:
+                self._is_writing = False
 
         return write_results
+
+    @property
+    def is_writing(self) -> bool:
+        """FIX-27: True while ``_persist()`` is in flight."""
+        return self._is_writing
 
     # ── Registration API ───────────────────────────────────────────────────────
 

@@ -107,9 +107,11 @@ export function VIXHistoryChart({ history, termHistory, height = 260, loading }:
       <div className="text-[10px] text-[var(--color-text-muted)] mt-1 text-center">
         VIX Spot (紫面积) · Term Ratio (橙虚) · Panic Premium (红点)
       </div>
-      {history.length > 0 && history[0].timestamp && (
+      {/* FIX-22: use the last (most recent) timestamp, not the first. The
+          backend orders ascending, so history[0] is the OLDEST sample. */}
+      {history.length > 0 && history[history.length - 1].timestamp && (
         <div className="text-[10px] text-[var(--color-text-muted)] text-right mt-1">
-          上次拉取：<span className="font-mono">{fmtTime(history[0].timestamp)}</span>
+          上次拉取：<span className="font-mono">{fmtTime(history[history.length - 1].timestamp)}</span>
         </div>
       )}
     </div>

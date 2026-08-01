@@ -12,7 +12,10 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    host: '0.0.0.0',
+    // SEC-12: bind localhost by default so the dev server isn't
+    // reachable from the LAN unless the operator explicitly opts in
+    // via ``MSR_VITE_HOST=0.0.0.0``.
+    host: process.env.MSR_VITE_HOST || 'localhost',
     proxy: {
       '/api': {
         target: 'http://localhost:8525',

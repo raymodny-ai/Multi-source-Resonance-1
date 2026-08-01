@@ -15,10 +15,16 @@ interface Props {
   vx1: number | null;
   vx2: number | null;
   state: 'contango' | 'backwardation' | 'flat' | null | string;
+  // FIX-35: the backend already returns the canonical term-structure
+  // ratio (``vx_3m_proxy / vix_spot - 1`` in the fetcher). Forward it
+  // here so the parent stops having to recompute the ratio client-side
+  // from raw spot/vx2 — different definitions of "ratio" produced
+  // inconsistent percentages between the chart card and history card.
+  termStructureRatio?: number | null;
   loading?: boolean;
 }
 
-export function VIXTermStructureCard({ vixSpot, vx1, vx2, state, loading }: Props) {
+export function VIXTermStructureCard({ vixSpot, vx1, vx2, state, termStructureRatio, loading }: Props) {
   const option = useMemo(() => {
     const labels = ['VX1 (近月)', 'VIX Spot', 'VX2 (远月)'];
     const data = [vx1 ?? null, vixSpot ?? null, vx2 ?? null];
@@ -62,7 +68,21 @@ export function VIXTermStructureCard({ vixSpot, vx1, vx2, state, loading }: Prop
     };
   }, [vixSpot, vx1, vx2]);
 
-  const ratio = vixSpot != null && vx2 != null && vx2 > 0 ? vixSpot / vx2 : null;
+  // FIX-35: prefer the backend-provided ratio when available (matches the
+  // fetcher's ``vx_3m_proxy / vix_spot - 1`` definition). Fall back to the
+  // historical VIX/VX2 fallback only when the backend didn't supply it.
+  const ratio =
+    termStructureRatio != null
+      ? 1 + termStructureRatio
+      : vixSpot != null && vx2 != null && vx2 > 0
+        ? vixSpot / vx2
+        : null;
+  const contangoPct =
+    termStructureRatio != null
+      ? termStructureRatio
+      : ratio != null
+        ? ratio - 1
+        : null;
 
   if (loading) {
     return (
@@ -103,8 +123,8 @@ export function VIXTermStructureCard({ vixSpot, vx1, vx2, state, loading }: Prop
           </div>
           <div className="text-[11px] text-[var(--color-text-muted)] text-right">
             Contango%
-            <span className={cn('msr-number text-sm font-semibold ml-1.5', ratio != null && ratio > 1 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-primary)]')}>
-              {ratio != null ? fmtPct(ratio - 1, 2) : '—'}
+            <span className={cn('msr-number text-sm font-semibold ml-1.5', contangoPct != null && contangoPct > 0 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-primary)]')}>
+              {contangoPct != null ? fmtPct(contangoPct, 2) : '—'}
             </span>
           </div>
         </div>

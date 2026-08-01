@@ -99,9 +99,10 @@ export function CryptoHistoryChart({ history, height = 280, loading }: Props) {
       <div className="text-[10px] text-[var(--color-text-muted)] mt-1 text-center">
         Funding Rate × 100 (紫) · BTC OI (橙, 右轴)
       </div>
-      {history.length > 0 && history[0].timestamp && (
+      {/* FIX-22: history[0] is the oldest sample, not the latest. */}
+      {history.length > 0 && history[history.length - 1].timestamp && (
         <div className="text-[10px] text-[var(--color-text-muted)] text-right mt-1">
-          最近：<span className="font-mono">{fmtTime(history[0].timestamp)}</span>
+          最近：<span className="font-mono">{fmtTime(history[history.length - 1].timestamp)}</span>
         </div>
       )}
     </div>

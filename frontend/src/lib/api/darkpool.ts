@@ -17,6 +17,10 @@ export interface DarkpoolHistoryRow {
   aggregated_signal: boolean;
   zero_cross_signal: string | null;
   momentum_reversal_signal: string | null;
+  // FIX-29: backend ``/api/darkpool/flow`` now exposes this column from
+  // ``v_daily_darkpool``. The frontend Short Ratio series consumes it
+  // directly instead of synthesising values from ``aggregated_signal``.
+  chartexchange_short_ratio: number | null;
   [key: string]: unknown;
 }
 

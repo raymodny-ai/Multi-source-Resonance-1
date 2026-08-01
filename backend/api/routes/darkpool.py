@@ -35,7 +35,8 @@ async def darkpool_flow(
     async with get_db() as db:
         cursor = await db.execute("""
             SELECT date, dix_value, v_net, ema_fast_5, ema_slow_20,
-                   aggregated_signal, zero_cross_signal, momentum_reversal_signal
+                   aggregated_signal, zero_cross_signal, momentum_reversal_signal,
+                   chartexchange_short_ratio
             FROM v_daily_darkpool
             WHERE date >= date('now', '-' || ? || ' days')
             ORDER BY date ASC

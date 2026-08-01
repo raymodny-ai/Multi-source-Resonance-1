@@ -4,7 +4,7 @@
  * - 最多 3 条同时显示，5 秒自动消失
  * - 可点击关闭
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiErrorEventName } from '@/lib/api/client';
 import { wsStatusEventName } from '@/lib/ws/WebSocketProvider';
 import type { ApiError } from '@/lib/api/types';
@@ -15,7 +15,14 @@ interface ToastItem {
   tone: 'info' | 'warning' | 'danger';
   title: string;
   detail?: string;
+  // FIX-30: each toast now records when it was created so we can
+  // compute the correct remaining time instead of letting the cleanup
+  // function clear every pending timer the moment a new toast arrives.
+  createdAt: number;
 }
+
+const TOAST_LIFETIME_MS = 5000;
+const SWEEP_INTERVAL_MS = 500;
 
 let nextId = 1;
 
@@ -32,6 +39,7 @@ export function ErrorToast() {
         tone,
         title,
         detail: `${detail.message} · ${detail.url}`,
+        createdAt: Date.now(),
       };
       setItems((prev) => [...prev, item].slice(-3));
     };
@@ -44,6 +52,7 @@ export function ErrorToast() {
           tone: 'warning',
           title: '实时连接中断',
           detail: state === 'reconnecting' ? '正在重连...' : '数据可能为缓存值',
+          createdAt: Date.now(),
         };
         setItems((prev) => [...prev, item].slice(-3));
       }
@@ -57,13 +66,26 @@ export function ErrorToast() {
     };
   }, []);
 
+  // FIX-30: a single sweep interval (rather than N per-item setTimeouts)
+  // removes toasts whose age has exceeded ``TOAST_LIFETIME_MS``. The
+  // previous implementation dropped every pending timer through its
+  // cleanup function the moment ``items`` changed (i.e. when a fresh
+  // toast arrived) — that meant an existing toast's 5-second clock
+  // restarted from zero whenever another error happened.
+  const itemsRef = useRef<ToastItem[]>([]);
+  itemsRef.current = items;
   useEffect(() => {
-    if (items.length === 0) return;
-    const timers = items.map((item) =>
-      setTimeout(() => setItems((prev) => prev.filter((i) => i.id !== item.id)), 5000),
-    );
-    return () => timers.forEach(clearTimeout);
-  }, [items]);
+    const handle = window.setInterval(() => {
+      const now = Date.now();
+      const live = itemsRef.current.filter(
+        (i) => now - i.createdAt < TOAST_LIFETIME_MS,
+      );
+      if (live.length !== itemsRef.current.length) {
+        setItems(live);
+      }
+    }, SWEEP_INTERVAL_MS);
+    return () => window.clearInterval(handle);
+  }, []);
 
   if (items.length === 0) return null;
 

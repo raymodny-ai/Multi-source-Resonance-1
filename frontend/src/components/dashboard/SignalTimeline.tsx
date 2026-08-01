@@ -65,9 +65,14 @@ export function SignalTimeline({ height = 120 }: { height?: number }) {
   };
 
   return (
-    <div className="msr-card flex flex-col" role="figure" aria-label="最近 24 小时信号时间线">
+    <div className="msr-card flex flex-col" role="figure" aria-label="最近 24 条信号时间线">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-semibold">信号时间线 · 最近 24h</h3>
+        {/* FIX-33: the ``useSignalsHistory(limit=24)`` call returns the
+            24 most-recent rows, not the signals within the last 24
+            hours — at the default 15-minute pipeline interval that's
+            typically the last 6 hours. The previous "最近 24h" label
+            was misleading. */}
+        <h3 className="text-sm font-semibold">信号时间线 · 最近 24 条</h3>
         <span className="text-[10px] text-[var(--color-text-muted)]">{rows.length} 条</span>
       </div>
       {isLoading && rows.length === 0 ? (
