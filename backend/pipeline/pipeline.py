@@ -347,9 +347,13 @@ class Pipeline:
     def _basic_score(self, analysis_results: dict[str, dict]) -> dict:
         """Compute a basic resonance score when quant scorer is not available.
 
-        This is a placeholder that sums any pre-computed dimension scores
-        found in the analysis results.
+        FIX-38: delegate the math to ``scoring.calculate_score`` so the
+        fallback path agrees with the Bayesian path on level thresholds
+        and normalisation. The previous ``sum + min(_, 100)`` heuristic
+        was a different scale than ``(raw / RAW_MAX) * 100``.
         """
+        from backend.quant.scoring import calculate_score, determine_level
+
         gex_score = 0.0
         vix_score = 0.0
         crypto_score = 0.0
@@ -366,16 +370,19 @@ class Pipeline:
             elif "dark" in src_lower or "pool" in src_lower:
                 darkpool_score = result.get("darkpool_score", 0.0) or 0.0
 
-        # Normalize: each dimension is 0-100; sum and cap at 100 to stay on the
-        # normalized scale the alert thresholds expect. More dimensions firing
-        # pushes the total up (resonance), but it never exceeds 100.
-        total = min(gex_score + vix_score + crypto_score + darkpool_score, 100.0)
+        result = calculate_score(
+            gex_score=gex_score,
+            vix_score=vix_score,
+            crypto_score=crypto_score,
+            darkpool_score=darkpool_score,
+        )
         return {
-            "total_score": round(total, 2),
-            "gex_score": gex_score,
-            "vix_score": vix_score,
-            "crypto_score": crypto_score,
-            "darkpool_score": darkpool_score,
+            "total_score": result["normalized_score"],
+            "gex_score": result["dimension_scores"]["gex"],
+            "vix_score": result["dimension_scores"]["vix"],
+            "crypto_score": result["dimension_scores"]["crypto"],
+            "darkpool_score": result["dimension_scores"]["darkpool"],
+            "alert_level": determine_level(result["normalized_score"]),
             "scorer": "basic_fallback",
         }
 
