@@ -84,20 +84,23 @@ def _compute_darkpool_analysis(data: dict) -> dict:
             raw_score += 50.0
         elif dix > 45:
             signals.append("dix_bullish")
-            raw_score += 30.0
+            raw_score += 20.0   # Owner#1 (2026-08-02): 40 (原30) — 降低权重
         elif dix > 40:
             signals.append("dix_neutral")
             raw_score += 10.0
 
     # --- Signal 2: Short ratio extreme ---
-    # Weight: max 0.50 points → normalized to 0-25.0
+    # Weight: 0 — Owner decision (2026-08-02): the chartexchange_short_ratio
+    # is sourced from a yfinance basket MEAN (SPY/GME/AMC/NVDA/TSLA), not real
+    # per-symbol short data, so it must not move the score. Signal remains
+    # recorded for audit visibility, but contributes 0 points.
     if short_ratio is not None:
         if short_ratio > 5.0:
             signals.append("short_ratio_extreme")
-            raw_score += 25.0
+            raw_score += 0.0
         elif short_ratio > 3.0:
             signals.append("short_ratio_high")
-            raw_score += 15.0
+            raw_score += 0.0
 
     # --- Signal 3: EMA momentum reversal ---
     # Weight: max 0.50 points → normalized to 0-25.0
