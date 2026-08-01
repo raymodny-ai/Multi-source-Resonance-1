@@ -6,7 +6,7 @@
  * - 信号：聚合信号 / 零交叉 / 动量反转
  */
 import { Card, CardContent } from 'sparkdesign';
-import { fmtNum, fmtPct, fmtTime } from '@/lib/utils/format';
+import { fmtNum, fmtTime } from '@/lib/utils/format';
 import { cn } from '@/lib/utils/cn';
 import type { DarkpoolLatest } from '@/lib/api/darkpool';
 
@@ -75,9 +75,9 @@ export function DarkpoolMetricsCard({ latest, loading }: Props) {
 
           <div className="rounded-md bg-[var(--color-bg-elevated)] px-3 py-2">
             <div className="text-[10px] text-[var(--color-text-muted)] uppercase tracking-wider">Short Ratio</div>
-            <div className="msr-number text-lg mt-1">{fmtPct(latest.chartexchange_short_ratio, 2)}</div>
+            <div className="msr-number text-lg mt-1">{fmtNum(latest.chartexchange_short_ratio, 2)}</div>
             <span className="text-[10px] text-[var(--color-text-muted)] mt-1 inline-block">
-              做空比例
+              回补天数 (Short Ratio)
             </span>
           </div>
 
