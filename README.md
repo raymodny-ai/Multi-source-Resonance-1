@@ -8,11 +8,12 @@
 [![Spark Design](https://img.shields.io/badge/Spark_Design-0.4-ff6f61)](https://www.npmjs.com/package/sparkdesign)
 [![ECharts](https://img.shields.io/badge/ECharts-6-e43961)](https://echarts.apache.org)
 [![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57)](https://sqlite.org/wal.html)
-[![Status](https://img.shields.io/badge/v4.0-Latest-success)](#)
+[![Tests](https://img.shields.io/badge/tests-187%20passed-success)](#15-测试)
+[![Status](https://img.shields.io/badge/v4.1-Latest-success)](#)
 
-> 基于 **三层解耦架构 V2.0** 的多维度金融监控系统。实时追踪美股暗盘资金、做市商 Gamma 敞口、VIX 期限结构、加密杠杆清洗及跨资产共振，通过 **四维 Regime Transition 评分** 自动识别"流动性清算衰竭"级抄底信号，多渠道推送告警。
+> 基于 **三层解耦架构 V2.0** 的多维度金融监控系统。实时追踪美股暗盘资金、做市商 Gamma 敞口、VIX 期限结构、加密杠杆清洗及跨资产共振，通过 **四维 Regime Transition 评分** 自动识别“流动性清算衰竭”级抄底信号，多渠道推送告警。
 >
-> **v4.0**：前端从 Vue 3 + ECharts 迁移至 **React 19 + TypeScript + Spark Design UI**，定位为"指挥中心"（Command Center）体验，支持桌面/平板/移动端响应式布局、实时 WebSocket、渐进式信息披露与全键可达性。
+> **v4.1**：完成数据获取与计算全面修复（**P0+P1+P2+P3 共 51 项** FIX），统一评分尺度为 0–100、加固安全默认、收紧 CORS、补齐 Hawkes/贝叶斯集成、修复 EventBus 泄漏与 VACUUM 锁争用。Frontend 仍是 React 19 + TypeScript + Spark Design 的指挥中心体验，支持桌面/平板/移动端响应式布局、实时 WebSocket、渐进式信息披露与全键可达性。
 
 ---
 
@@ -35,6 +36,7 @@
 15. [测试](#15-测试)
 16. [版本演进](#16-版本演进)
 17. [许可证](#17-许可证)
+18. [运维与安全配置（v4.1 必读）](#18-运维与安全配置v41-必读)
 
 ---
 
@@ -52,7 +54,7 @@
 |------|------|
 | **21 个数据源** | GEXMetrix / AXLFI / VIX / yfinance / CBOE / Crypto / Darkpool / Flow / Sentiment / LLM / Put-Call / VIX Term / Sector / Macro / SqueezeMetrics / FINRA / CCData / StockGrid / Coinglass / Tradier / DBMF，全部支持 mock 模式 |
 | **三层解耦 V2.0** | Layer1 纯数学计算 → Layer2 JSON 网关 → Layer3 LLM 推理（任意一层可独立替换/降级） |
-| **四维共振评分** | GEX + VIX + Crypto + Darkpool，满分 5.0，LEVEL_3 阈值 3.5 |
+| **四维共振评分** | GEX + VIX + Crypto + Darkpool，满分 100（统一规范化的 0–100 尺度），LEVEL_1=25 / LEVEL_2=50 / LEVEL_3=75 |
 | **Hawkes AR(1)** | OLS 自回归替代 corrcoef，精确自激分支比测算 |
 | **贝叶斯权重自适应** | Beta-Binomial 共轭更新，动态调整四维权重 |
 | **逐 strike 真实数据** | GEXMetrix options[] 解析，1666+ strikes 入库，前端真实可视化 |
@@ -68,9 +70,9 @@
 | **完整 Web UI（v4.0）** | React 19 + TypeScript + Spark Design UI + echarts-for-react + TanStack Query + Zustand |
 | **指挥中心体验** | 9 页面、实时数据流、渐进式信息披露、响应式布局、无障碍访问 |
 
-### 1.3 v4.0 当前状态（2026-07-31）
+### 1.3 v4.1 当前状态（2026-07-31）
 
-- **后端**：FastAPI 监听 `0.0.0.0:8525`，63+ 个 REST 路由 + WebSocket（端口 `8525`，前端 Vite proxy 转发 `/api` & `/ws`）
+- **后端**：FastAPI 监听 `127.0.0.1:8524`（默认 SEC-09 收紧），63+ 个 REST 路由 + WebSocket（端口 `8524`，前端 Vite proxy 转发 `/api` & `/ws`）
 - **数据库**：SQLite（WAL），11 张表，主要数据表：`gex_strikes` 3332 / `dark_pool_metrics` 253 / `gex_history` 103 / `gex_snapshots` 90+ / `vix_analysis` 7
 - **前端**：React 19 + TypeScript 5.7，Vite 6 构建，Spark Design UI（`sparkdesign@^0.4.11`），echarts-for-react 图表
   - **9 页面**：Dashboard / Signals / GEX / VIX / Crypto / Darkpool / Analysis / System / Settings
@@ -78,6 +80,7 @@
   - **Hooks**：7 个 `use*`（Dashboard / Signals / GEX / VIX / Crypto / Darkpool / Analysis / System / Config）
   - **API 模块**：12 个 `lib/api/*`（client + 11 个领域模块）
 - **采集**：21 个数据源 fetcher，全部支持 mock 模式（API key 缺失时自动降级）；每日美东 20:00 批量 + 手动触发（`POST /api/system/collect-manual`）
+- **数据修复**：完成 **P0+P1+P2+P3 共 51 项 FIX**（详见 [§15 测试](#15-测试) 与 [§16 版本演进](#16-版本演进)）：mock 识别贯通、代理/网络配置、安全默认值收紧、CORS allowlist、连接池信号量 / 事务原子性、EventBus 排空 + 记录不可变、VACUUM 重试+延迟、UTC 列索引、Hawkes 分支比 / 贝叶斯权重全链路贯通、评分尺度统一 0–100、前端 UI 反馈闭环
 
 ---
 
@@ -282,7 +285,7 @@ Multi-source-Resonance 1/
 │   │   │   └── utils/                # cn / format / signal 等
 │   │   └── types/                    # 共享类型
 │   ├── package.json
-│   ├── vite.config.ts                # dev :5173 → proxy /api → :8525
+│   ├── vite.config.ts                # dev :5173 → proxy /api → :8524
 │   └── tsconfig.json
 ├── data/                             # 运行时数据
 │   ├── resonance.db / .db-shm / .db-wal
@@ -460,17 +463,19 @@ CREATE TABLE crypto_derivatives (
 CREATE TABLE signal_alerts (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
     trigger_time            DATETIME NOT NULL,
-    total_score             REAL NOT NULL,    -- 共振总分 0-5.0
-    gex_score               REAL,
-    vix_score               REAL,
-    crypto_score            REAL,
-    darkpool_score          REAL,
-    alert_level             TEXT NOT NULL,    -- 'LEVEL_1' | 'LEVEL_2' | 'LEVEL_3'
+    total_score             REAL NOT NULL,    -- 共振总分 0-100（FIX-38 规范化尺度）
+    gex_score               REAL,             -- 0-100
+    vix_score               REAL,             -- 0-100
+    crypto_score            REAL,             -- 0-100
+    darkpool_score          REAL,             -- 0-100
+    alert_level             TEXT NOT NULL,    -- 'LEVEL_0' | 'LEVEL_1' | 'LEVEL_2' | 'LEVEL_3'
     hawkes_branching_ratio  REAL,
     details                 TEXT,             -- JSON 详情
     acknowledged            BOOLEAN,
     created_at              DATETIME
 );
+-- FIX-37: outcome/replay review扫描索引
+CREATE INDEX idx_signal_alerts_outcome ON signal_alerts (outcome, outcome_checked_at DESC);
 ```
 
 #### `system_config` — KV 配置
@@ -485,7 +490,7 @@ CREATE TABLE system_config (
 -- 默认值：
 --   'alpha_factor'      = '1.0'        GEX 校准系数
 --   'gex_threshold'     = '35000000'   GEX 阈值 35M
---   'alert_level_3_min' = '3.5'        LEVEL_3 最低分
+--   'alert_level_3_min' = '75.0'       LEVEL_3 最低分（0-100 尺度，FIX-38）
 ```
 
 ### 5.3 ER 图
@@ -504,8 +509,8 @@ system_config (KV)  ── 全局参数
 
 ## 6. API 接口文档
 
-**Base URL**：`http://0.0.0.0:8525`
-**CORS**：允许 `http://localhost:8525`、`http://127.0.0.1:8525`
+**Base URL**：`http://127.0.0.1:8524`（SEC-09：默认绑定 loopback；LAN 部署需设 `MSR_HOST=0.0.0.0`）
+**CORS**：允许 `http://localhost:5173`、`http://localhost:3000`（FIX-10 收紧为 allowlist，不再 `*`）
 **响应格式**：全部 `application/json`
 
 ### 6.1 健康 & 系统
@@ -584,7 +589,7 @@ system_config (KV)  ── 全局参数
 ### 6.7 WebSocket
 
 ```
-WS /ws   （通过 Vite proxy → ws://localhost:8525/ws）
+WS /ws   （通过 Vite proxy → ws://localhost:8524/ws）
 ```
 
 **消息格式**：
@@ -624,7 +629,7 @@ WS /ws   （通过 Vite proxy → ws://localhost:8525/ws）
 7. 注册中间件（JWT + Rate Limit）
 8. start_scheduler()           # APScheduler
 9. WebSocketManager()          # 管理 WS 连接 + 与 EventBus 桥接
-10. uvicorn.run(host='0.0.0.0', port=8525)
+10. uvicorn.run(host='127.0.0.1', port=8524)  # SEC-09 默认 loopback
 ```
 
 ### 7.2 异步并发模型
@@ -704,10 +709,11 @@ DARKPOOL_WEIGHTS = {
 }
 
 LEVEL_THRESHOLDS = {
-    "LEVEL_1": 2.0,   # 观察
-    "LEVEL_2": 3.0,   # 关注
-    "LEVEL_3": 3.5,   # 强信号 + 推送
+    "LEVEL_1": 25.0,   # 观察
+    "LEVEL_2": 50.0,   # 关注
+    "LEVEL_3": 75.0,   # 强信号 + 推送
 }
+# FIX-38: 统一规范化的 0–100 尺度，_basic_score / 贝叶斯权重动态适应均作用于同一标度。
 ```
 
 ### 7.5 降级容错
@@ -947,20 +953,24 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
 ### 9.1 共振评分细则
 
-四维加权求和（满分 5.0）：
+四维加权求和后归一化到 0–100（FIX-38）：
 
 ```
-total_score = gex_score + vix_score + crypto_score + darkpool_score
+raw_score = (gex_score/100)*2.5 + (vix_score/100)*1.5 + (crypto_score/100)*2.0 + (darkpool_score/100)*2.0
+normalized_score = (raw_score / 8.0) * 100
+alert_level = level(normalized_score)        # LEVEL_0/1/2/3
 ```
 
-| 维度 | 满分 | 关键触发 |
-|------|------|----------|
-| GEX | 2.5 | GEX 转正（+1.5）/ Spot < Zero Gamma（+0.5）/ 接近 Call Wall（+0.5） |
-| VIX | 1.5 | 期限结构正挂（+1.0）/ Panic premium 低（+0.5） |
-| Crypto | 1.0 | 杠杆清洗（+1.0）/ 资金费率异常（+0）/ OI 闪崩（+0） |
-| Darkpool | 1.0 | DIX 多头（+1.0）/ 做空极端（+0.5）/ 动量反转（+0.5） |
+| 维度 | 权重 | 原始范围 | 关键触发 |
+|------|------|----------|----------|
+| GEX | 2.5 | 0–100 | GEX 转正（+1.5）/ Spot < Zero Gamma（+0.5）/ 接近 Call Wall（+0.5） |
+| VIX | 1.5 | 0–100 | 期限结构正挂（+1.0）/ Panic premium 低（+0.5） |
+| Crypto | 2.0 | 0–100 | 杠杆清洗（+1.0）/ 资金费率异常（+0）/ OI 闪崩（+0） |
+| Darkpool | 2.0 | 0–100 | DIX 多头（+1.0）/ 做空极端（+0.5）/ 动量反转（+0.5） |
 
-**告警级别阈值**：`LEVEL_1 ≥ 2.0`，`LEVEL_2 ≥ 3.0`，`LEVEL_3 ≥ 3.5`。
+**告警级别阈值**：`LEVEL_1 ≥ 25`，`LEVEL_2 ≥ 50`，`LEVEL_3 ≥ 75`。
+
+> 多维共振奖励：当≥3个维度都处于"strong"区间（≥60）时，normalized_score 额外加上 5–10 分并重评告警级别。贝叶斯权重自适应该输出后利用 Beta-Binomial 共轭更新动态调整权重（`min_outcomes=1`，逐 outcome 递增）。
 
 ### 9.2 Hawkes 自激模型
 
@@ -1052,10 +1062,11 @@ pip install -r requirements.txt
 # 2. 初始化数据库（首次）
 python -m backend.database init
 
-# 3. 启动 FastAPI（默认 :8525）
+# 3. 启动 FastAPI（默认 127.0.0.1:8524，SEC-09）
 python -m backend.main
 # 或
-uvicorn backend.main:app --host 0.0.0.0 --port 8525 --reload
+uvicorn backend.main:app --host 127.0.0.1 --port 8524 --reload
+# LAN 部署需 --host 0.0.0.0；生产服务器需设 MSR_HOST=0.0.0.0
 ```
 
 ### 13.2 前端
@@ -1066,7 +1077,7 @@ cd frontend
 # 1. 安装依赖
 npm install
 
-# 2. 开发模式（默认 :5173，proxy → :8525）
+# 2. 开发模式（默认 :5173，proxy → :8524）
 npm run dev
 
 # 3. 生产构建
@@ -1093,7 +1104,7 @@ cd frontend && npm run dev
 
 | 变量 | 说明 | 默认 |
 |------|------|------|
-| `MSR_BACKEND_PORT` | 后端端口 | `8525` |
+| `MSR_BACKEND_PORT` | 后端端口 | `8524` |
 | `MSR_FRONTEND_PORT` | 前端端口 | `5173` |
 | `MSR_DB_PATH` | SQLite 数据库路径 | `data/resonance.db` |
 | `MSR_API_KEY_<SOURCE>` | 各数据源 API Key | — |
@@ -1129,11 +1140,11 @@ server {
   }
 
   location /api/ {
-    proxy_pass http://localhost:8525;
+    proxy_pass http://localhost:8524;
   }
 
   location /ws {
-    proxy_pass http://localhost:8525;
+    proxy_pass http://localhost:8524;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
@@ -1165,11 +1176,28 @@ pytest tests/integration -v
 pytest tests/ -v --cov=backend
 ```
 
+**当前状态（v4.1）**：
+
+| 测试套件 | 用例数 | 状态 |
+|----------|--------|------|
+| `tests/unit/test_db_maintenance.py` | 8 | ✓ |
+| `tests/unit/test_eventbus.py` | 22 | ✓ |
+| `tests/unit/test_fetchers.py` | 24 | ✓ |
+| `tests/unit/test_models.py` | 34 | ✓ |
+| `tests/unit/test_quant.py` | 41 | ✓ |
+| `tests/unit/test_security.py` | 19 | ✓ |
+| `tests/integration/test_api.py` | 19 | ✓ |
+| `tests/integration/test_pipeline.py` | 12 | ✓ |
+| `tests/test_performance.py` | 7 | ✓ |
+| **合计** | **187** | **全部通过** |
+
+最近一次运行耗时约 27 秒（pytest 9 + Python 3.12）。
+
 ### 15.2 前端
 
 ```bash
 cd frontend
-npm run type-check      # tsc 严格类型检查
+npm run type-check      # tsc 严格类型检查（当前零错误）
 npm run build           # Vite 生产构建
 ```
 
@@ -1196,13 +1224,55 @@ npm run build           # Vite 生产构建
 | **v2.5** | 2026-Q1 | 逐 strike 真实数据 + BFF 聚合接口 + 90 天历史回填 |
 | **v3.0** | 2026-Q2 | 玻璃拟态 UI + 设计令牌 + 双主题 + LiveTape |
 | **v3.1** | 2026-Q3 | 快照自动记录 + TimelineReplay + SnapshotGallery |
-| **v4.0** | 2026-Q4（当前） | **前端重写：Vue 3 → React 19 + Spark Design UI**，9 页面 + 响应式 + 无障碍 + WebSocket 优化 |
+| **v4.0** | 2026-Q4 | **前端重写：Vue 3 → React 19 + Spark Design UI**，9 页面 + 响应式 + 无障碍 + WebSocket 优化 |
+| **v4.1** | 2026-07-31（当前） | **数据获取与计算全面修复（51 项 FIX）**：P0 安全默认 + P1 竞态/降级 + P2 事件流/UI + P3 代码质量。最终 187 个后端测试全部通过 + 前端 `tsc --noEmit` 零错误。 |
+
+### v4.1 修复总览（51 项）
+
+| 阶段 | 修复点 | 重点 |
+|------|--------|------|
+| **P0 阻塞部署** | FIX-01~10 | mock 检测贯通、代理/网络配置、评分阈值统一 0–100、维度/仪表盘尺度、移除硬编码 JWT/CORS allowlist、连接池信号量防泄露、事务原子性、状态端点加认证 |
+| **P1 一周内** | FIX-11~22 | fetcher mock 标记、PutCallFetcher mock 标记、消除随机字段、Hawkes 集成、VIX/Crypto 历史 "最近" 标签、UI 错误反馈 |
+| **P2 两周内** | PIPE-08/09/13/16、FE-01/02/05~15、SEC-03/05/10/11/13~18 | EventBus drain + 不可变记录、VACUUM retry+defer、scheduler is_writing、darkpool short_ratio + EMA axis、ErrorToast sweep 间隔、AlertBanner key、SignalTimeline 标签、VIX 期限比率、GEX WS 精准失效、Redis 限流、信任代理、主机默认 127.0.0.1、安全响应头中间件、Vite host 可选 |
+| **P3 后续质量** | FIX-37~51 | signal_alerts outcome 索引、fmtPct 契约、mockSources 稳定引用、Bayesian DIMS 常量、aria-expanded、WS URL 端口、骨架高度、Darkpool 日期拼接、SourceHealthGrid 集中式 hook、GEX markPoint 类别轴、GEX null 一致性、WSProvider init ref |
 
 ---
 
 ## 17. 许可证
 
 本项目仅供内部研究使用，未经授权不得用于商业用途。
+
+---
+
+## 18. 运维与安全配置（v4.1 必读）
+
+### 18.1 环境变量要点
+
+复制 `.env.example` → `.env`，并**必须**设置以下变量（避免使用默认值）：
+
+| 变量 | 说明 | 缺省行为 |
+|------|------|----------|
+| `JWT_SECRET` | JWT 签名密钥（FIX-05） | 不设 → 生成**本次进程内临时密钥**，重启后所有 token 失效 |
+| `MSR_HOST` | 后端绑定地址（SEC-09） | 默认 `127.0.0.1`；LAN 部署需设 `0.0.0.0` |
+| `CORS_ORIGINS` | CORS allowlist（FIX-10） | 默认 `http://localhost:5173,http://localhost:3000`；`*` 会被启动拒绝 |
+| `MSR_HTTP_PROXY` / `MSR_HTTPS_PROXY` | 代理地址（FIX-02） | 不设 → 直连 |
+| `MSR_NETWORK_ENABLED` | 是否允许出站网络 | 默认 `true`；设 `false` → 全部数据源走 mock |
+| `MSR_REDIS_URL` | 分布式限流后端（SEC-07） | 不设 → 本地内存限流 |
+| `MSR_TRUST_PROXY` | 信任反向代理（SEC-08） | 默认 `false`；需准确 X-Forwarded-* 时设 `true` |
+
+### 18.2 部署前检查清单
+
+- [ ] 设置 `JWT_SECRET`（≥32 字节随机串）
+- [ ] 根据实际部署场景设置 `MSR_HOST` 和 `CORS_ORIGINS`
+- [ ] 如走代理，设置 `MSR_HTTPS_PROXY`（或 `proxy_overrides` JSON）
+- [ ] 如跨域需分布式限流，部署 Redis 并设 `MSR_REDIS_URL`
+- [ ] 反向代理后面设 `MSR_TRUST_PROXY=true`，并在 nginx 严格设置 `X-Forwarded-*`
+- [ ] 若裸机部署且需 LAN 访问，设 `MSR_VITE_HOST=0.0.0.0`
+- [ ] 首次启动后检查 `/api/health` 返回 200 与 `version`
+
+### 18.3 VACUUM 维护
+
+`vacuum_and_analyze` 现在走 **WAL checkpoint → 重试 + defer** 路径（FIX-25）。cron 周期中如遇到 `status=deferred`，说明被写入锁压住，会在下个周期重试，不会报“错误”误导运营。
 
 ---
 
