@@ -179,6 +179,13 @@ _PUBLIC_PATHS = {
     "/api/redoc",
     "/api/openapi.json",
     "/ws",
+    # Owner decision 2026-08-02 (方案 C): exempt manual collect from auth so
+    # the React frontend "立即运行完整 cycle" button works (it has no login /
+    # token mechanism). Trade-off accepted: any visitor can trigger a
+    # collection (may consume API quota) — this is the minimal path that makes
+    # the button functional. All OTHER writes (config, dashboard-seed,
+    # password, etc.) remain JWT-protected.
+    "/api/system/collect-manual",
 }
 
 # Path prefixes that are public
