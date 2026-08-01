@@ -33,6 +33,12 @@ async def app_client(tmp_path: Path):
         mock_settings.db_path = db_path
         mock_settings.db_absolute_path = Path(db_path).resolve()
         mock_settings.jwt_secret = "test-secret-key-not-for-production"
+        # FIX-05: auth routes call ``settings.effective_jwt_secret`` (which
+        # would emit a warning + ephemeral fallback in production). The
+        # test fixture wires in the explicit value to keep behaviour
+        # deterministic and avoid the per-process random fallback masking
+        # bugs in token creation.
+        mock_settings.effective_jwt_secret = "test-secret-key-not-for-production"
         mock_settings.jwt_algorithm = "HS256"
         mock_settings.jwt_expire_minutes = 30
         mock_settings.log_level = "DEBUG"

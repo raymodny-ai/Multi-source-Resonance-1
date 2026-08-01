@@ -36,12 +36,24 @@ class TestBaseFetcherRetry:
     """Test BaseFetcher retry logic from fetchers/base.py."""
 
     def test_mock_mode_returns_mock_data(self):
-        """fetch_with_retry returns mock data when API key is absent."""
+        """GEXMetrix always tries the live API path (FIX-11 site-level key).
+
+        ``GEXMetrixFetcher._mock_mode_key`` deliberately returns ``"none"`` —
+        a key NOT present in ``Settings.is_mock_mode``'s key_map. This means
+        ``is_mock_mode()`` short-circuits to ``False`` so the fetcher always
+        hits the live URL (the public site-level X-API-Key is bundled in the
+        GEXMetrix dashboard JS). Mock data is only returned on actual fetch
+        failure — see ``test_retry_falls_back_to_mock_on_failure``.
+        """
         from backend.fetchers.gexmetrix_fetcher import GEXMetrixFetcher
 
         config = _make_settings()
         fetcher = GEXMetrixFetcher(config)
-        assert fetcher._is_mock_mode() is True
+        # FIX-11: site-level API key means GEXMetrix never enters mock mode
+        # purely because ``gexmetrix_api_key`` is unset.
+        assert fetcher._is_mock_mode() is False
+        # But the mock data path itself is still wired up for fallback.
+        assert isinstance(fetcher._mock_data(), dict)
 
     @pytest.mark.asyncio
     async def test_retry_falls_back_to_mock_on_failure(self):

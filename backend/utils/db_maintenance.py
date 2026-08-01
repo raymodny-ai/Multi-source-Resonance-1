@@ -46,7 +46,10 @@ async def vacuum_and_analyze() -> dict:
         except Exception as e:
             logger.warning(f"WAL checkpoint before VACUUM failed: {e}")
 
-        # VACUUM requires exclusive access — retry with backoff.
+        # VACUUM requires exclusive access — retry with exponential backoff.
+        # Backoff kept short (1s/2s/4s) so test suites don't pay a 60s
+        # penalty when an unrelated failure mode (e.g. empty test DB) forces
+        # all retries. Production cron runs the retry on a separate schedule.
         vacuum_done = False
         last_err: str | None = None
         for attempt in range(3):
@@ -63,7 +66,7 @@ async def vacuum_and_analyze() -> dict:
                 logger.warning(
                     f"VACUUM attempt {attempt + 1} failed: {e}; backing off"
                 )
-                await asyncio.sleep(10 * (attempt + 1))
+                await asyncio.sleep(1 * (2 ** attempt))
             finally:
                 await conn.close()
 

@@ -57,9 +57,10 @@ class TestVacuumAndAnalyze:
             from backend.utils.db_maintenance import vacuum_and_analyze
             result = await vacuum_and_analyze()
 
-        # aiosqlite may keep internal statements open, causing VACUUM to fail
-        # in test environments; accept either outcome
-        assert result["status"] in ("ok", "error")
+        # FIX-25: aiosqlite / WAL can keep statements open long enough to
+        # block VACUUM; the new retry+defer path returns ``deferred``
+        # rather than ``error`` so the cron job can recover later.
+        assert result["status"] in ("ok", "error", "deferred")
         assert result["operation"] == "vacuum_analyze"
         assert "elapsed_seconds" in result or "error" in result
 
@@ -73,8 +74,8 @@ class TestVacuumAndAnalyze:
             from backend.utils.db_maintenance import vacuum_and_analyze
             result = await vacuum_and_analyze()
 
-        # Accept either outcome due to aiosqlite threading limitations
-        assert result["status"] in ("ok", "error")
+        # FIX-25: same retry/defer semantics on an empty DB.
+        assert result["status"] in ("ok", "error", "deferred")
         assert result["operation"] == "vacuum_analyze"
 
 

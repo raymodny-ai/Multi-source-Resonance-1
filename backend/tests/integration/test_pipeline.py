@@ -243,30 +243,44 @@ class TestPipelineCycle:
 
     @pytest.mark.asyncio
     async def test_pipeline_basic_scoring(self, tmp_path: Path):
-        """Pipeline with no registered scorer uses basic fallback."""
+        """Pipeline with no registered scorer uses basic fallback.
+
+        FIX-38: ``_basic_score`` now delegates the math to
+        ``scoring.calculate_score`` so the 0-100 normalized scale and the
+        dimension weights stay in sync with the main scorer. Dimension
+        scores are expected in 0-100 range.
+        """
         settings = _make_settings(tmp_path)
         bus = EventBus()
         pipeline = Pipeline(config=settings, event_bus=bus)
 
         analysis = {
-            "gex_data": {"gex_score": 2.0},
-            "vix_data": {"vix_score": 1.0},
+            "gex_data": {"gex_score": 60.0},
+            "vix_data": {"vix_score": 40.0},
+            "crypto_data": {"crypto_score": 80.0},
+            "darkpool_data": {"darkpool_score": 50.0},
         }
         result = pipeline._basic_score(analysis)
-        assert result["total_score"] == 3.0
+        # Weighted contribution: (60/100)*2.5 + (40/100)*1.5 + (80/100)*2.0 + (50/100)*2.0
+        # = 1.5 + 0.6 + 1.6 + 1.0 = 4.7 raw → 4.7/8.0 * 100 = 58.75
+        assert abs(result["total_score"] - 58.75) < 0.5
         assert result["scorer"] == "basic_fallback"
 
     @pytest.mark.asyncio
     async def test_pipeline_alert_level(self, tmp_path: Path):
+        """FIX-38: thresholds live on the normalized 0-100 scale."""
         settings = _make_settings(tmp_path)
         bus = EventBus()
         pipeline = Pipeline(config=settings, event_bus=bus)
 
         assert pipeline._compute_alert_level(0.0) == "NONE"
-        assert pipeline._compute_alert_level(2.0) == "LEVEL_1"
-        assert pipeline._compute_alert_level(3.0) == "LEVEL_2"
-        assert pipeline._compute_alert_level(3.5) == "LEVEL_3"
-        assert pipeline._compute_alert_level(5.0) == "LEVEL_3"
+        assert pipeline._compute_alert_level(24.9) == "NONE"
+        assert pipeline._compute_alert_level(25.0) == "LEVEL_1"
+        assert pipeline._compute_alert_level(49.9) == "LEVEL_1"
+        assert pipeline._compute_alert_level(50.0) == "LEVEL_2"
+        assert pipeline._compute_alert_level(74.9) == "LEVEL_2"
+        assert pipeline._compute_alert_level(75.0) == "LEVEL_3"
+        assert pipeline._compute_alert_level(100.0) == "LEVEL_3"
 
 
 # ===========================================================================
