@@ -334,11 +334,14 @@ class TestFlowFetcher:
 
     @pytest.mark.asyncio
     async def test_mock_data_structure(self):
+        # Structure check on the offline mock fallback (no network). The real
+        # CMF path (2026-08-02, option B) returns the same top-level keys with
+        # paid-only fields (institutional/retail/dark_pool) as None.
         from backend.fetchers.flow_fetcher import FlowFetcher
 
         config = _make_settings()
         fetcher = FlowFetcher(config)
-        result = await fetcher.fetch()
+        result = fetcher._generate_mock_data()
         assert "net_money_flow" in result
         assert "institutional_flow" in result
         assert "flow_direction" in result
