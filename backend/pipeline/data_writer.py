@@ -81,7 +81,12 @@ class DataWriter:
 
         if source_lower == "gexmetrix":
             return await self._write_gex_snapshot(conn, data, now, is_mock, mock_reason)
-        elif source_lower in ("vix", "cboe"):
+        elif source_lower in ("vix", "cboe", "vix_term_structure"):
+            # vix_term_structure (VIXTermFetcher, CBOE+FRED) also routes here:
+            # _write_vix_analysis persists both vix_analysis and, when a date
+            # is present, the vix_term_structure daily-history row. Previously
+            # it fell through to gateway_snapshots (audit only) so the
+            # vix_term_structure table never updated.
             return await self._write_vix_analysis(conn, data, now, is_mock, mock_reason)
         elif source_lower in ("darkpool", "dark_pool_metrics"):
             return await self._write_dark_pool_metrics(conn, data, now, is_mock, mock_reason)
