@@ -434,6 +434,58 @@ class Pipeline:
                 f"[Phase 3] Bayesian weight update skipped: {exc}"
             )
 
+    # ── Hawkes branching ratio ────────────────────────────────────────────────
+
+    async def _compute_hawkes_branching_ratio(self) -> Optional[float]:
+        """Compute the Hawkes self-excitation branching ratio from recent alerts.
+
+        Uses the timestamps of recent signal alerts as event times, fits the
+        AR(1) approximation (lambda_t = a + b*lambda_{t-1}) and returns the
+        branching ratio b in [0,1]. This measures how strongly each signal
+        triggers follow-up signals. Was previously never wired into the
+        pipeline, so hawkes_branching_ratio was always NULL in the DB.
+
+        Returns None when there are too few events (<3) to fit.
+        """
+        try:
+            from backend.database import get_db
+            from backend.quant.hawkes_model import analyze as hawkes_analyze
+            import datetime as _dt
+
+            async with get_db() as db:
+                cursor = await db.execute("""
+                    SELECT trigger_time FROM signal_alerts
+                    ORDER BY id DESC LIMIT 60
+                """)
+                rows = await cursor.fetchall()
+
+            if not rows or len(rows) < 3:
+                return None
+
+            # Convert ISO trigger times to epoch seconds (floats) as event times
+            event_times = []
+            now = time.time()
+            for r in rows:
+                ts = r["trigger_time"]
+                try:
+                    dt = _dt.datetime.fromisoformat(
+                        ts.replace("Z", "+00:00")
+                    ).astimezone(_dt.timezone.utc)
+                    event_times.append(dt.timestamp())
+                except Exception:
+                    continue
+
+            if len(event_times) < 3:
+                return None
+
+            # Fit on most recent events; keep time values relative (latest first)
+            result = await hawkes_analyze({"event_times": sorted(event_times)})
+            br = result.get("branching_ratio")
+            return float(br) if br is not None else None
+        except Exception as exc:
+            logger.warning(f"[Persist] Hawkes BR computation failed: {exc}")
+            return None
+
     # ── Persistence ────────────────────────────────────────────────────────────
 
     async def _persist(
@@ -470,6 +522,7 @@ class Pipeline:
             # Write signal alert if applicable
             alert_level = scoring_result.get("alert_level", "NONE")
             if alert_level != "NONE":
+                hawkes_br = await self._compute_hawkes_branching_ratio()
                 await self.writer.write_signal_alert(
                     total_score=scoring_result.get("total_score", 0.0),
                     alert_level=alert_level,
@@ -477,9 +530,10 @@ class Pipeline:
                     vix_score=scoring_result.get("vix_score"),
                     crypto_score=scoring_result.get("crypto_score"),
                     darkpool_score=scoring_result.get("darkpool_score"),
+                    hawkes_branching_ratio=hawkes_br,
                     details=scoring_result,
                 )
-                logger.info(f"[Persist] Signal alert written: {alert_level}")
+                logger.info(f"[Persist] Signal alert written: {alert_level} (hawkes={hawkes_br})")
 
         except Exception as exc:
             logger.error(f"[Persist] Persistence failed: {exc}", exc_info=True)
