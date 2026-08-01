@@ -11,10 +11,10 @@ mkdir -p "${LOG_DIR}"
 
 cd "${WS}"
 
-# 拿 ADMIN_PASSWORD (从 .env 或 fallback 默认 admin)
+# 拿 MSR_ADMIN_PASSWORD (FIX-05, 从 .env 或 fallback 默认 admin)
 ADMIN_PW="admin"
 if [ -f "./.env" ]; then
-  ADMIN_PW=$(grep '^ADMIN_PASSWORD=' ./.env 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")
+  ADMIN_PW=$(grep '^MSR_ADMIN_PASSWORD=' ./.env 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")
 fi
 if [ -z "${ADMIN_PW}" ]; then
   ADMIN_PW="admin"

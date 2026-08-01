@@ -68,6 +68,10 @@ class Pipeline:
         # (VACUUM, archive, backup) can poll this and skip their run.
         self._is_writing: bool = False
         self._write_lock = asyncio.Lock()
+        # 2026-08-02: single-flight guard for run_cycle(). True while a cycle
+        # is actively executing (periodic OR manual). collect-manual 409s only
+        # when this is set; during idle sleep manual runs are allowed.
+        self._in_cycle: bool = False
 
         # Quant analyzers registry (populated externally to avoid import conflicts)
         # Key: source_name, Value: async callable(data: dict) -> dict
@@ -107,7 +111,7 @@ class Pipeline:
                 logger.info(f"=== Pipeline cycle {self._cycle_count} starting ===")
 
                 try:
-                    report = await self.run_cycle()
+                    report = await self.run_cycle()  # run_cycle is single-flight (manages _in_cycle)
                     self._last_cycle_report = report
                     elapsed = round(time.monotonic() - cycle_start, 2)
                     logger.info(
@@ -165,9 +169,24 @@ class Pipeline:
     async def run_cycle(self) -> dict:
         """Execute one full Collect → Analyse → Score cycle.
 
+        Single-flight: if a cycle is already executing (periodic or manual),
+        this returns immediately without running a duplicate (collect-manual
+        409s on in_cycle before calling).
+
         Returns:
             Dict summarising the cycle results.
         """
+        if self._in_cycle:
+            logger.warning("run_cycle() skipped — a cycle is already running")
+            return self._last_cycle_report or {}
+        self._in_cycle = True
+        try:
+            return await self._run_cycle_inner()
+        finally:
+            self._in_cycle = False
+
+    async def _run_cycle_inner(self) -> dict:
+        """Actual cycle body (guarded by single-flight in run_cycle)."""
         cycle_ts = datetime.now(timezone.utc).isoformat()
 
         # ── Phase 1: Data Collection ───────────────────────────────────────────
@@ -599,6 +618,17 @@ class Pipeline:
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def in_cycle(self) -> bool:
+        """True while a cycle is actively executing (periodic or manual).
+
+        Distinct from ``is_running`` which stays True during the idle sleep
+        between periodic cycles. collect-manual uses ``in_cycle`` so it only
+        409s when a cycle is genuinely running, allowing manual trigger during
+        the sleep window.
+        """
+        return self._in_cycle
 
     @property
     def cycle_count(self) -> int:

@@ -11,7 +11,7 @@ mkdir -p "${LOG_DIR}"
 cd "${WS}"
 ADMIN_PW="admin"
 if [ -f "./.env" ]; then
-  ADMIN_PW=$(grep '^ADMIN_PASSWORD=' ./.env 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")
+  ADMIN_PW=$(grep '^MSR_ADMIN_PASSWORD=' ./.env 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")
 fi
 [ -z "${ADMIN_PW}" ] && ADMIN_PW="admin"
 

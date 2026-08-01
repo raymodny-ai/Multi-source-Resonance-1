@@ -168,7 +168,11 @@ async def collect_manual(request: Request):
     """
     pipeline = request.app.state.pipeline
 
-    if pipeline.is_running:
+    # 2026-08-02: only 409 if a cycle is genuinely executing (periodic OR
+    # manual). During the idle sleep window between periodic cycles the user
+    # may manually trigger an immediate run — run_cycle is single-flight so no
+    # duplicate executes.
+    if pipeline.in_cycle:
         raise HTTPException(
             status_code=409,
             detail="Pipeline is already running. Wait for current cycle to complete.",
