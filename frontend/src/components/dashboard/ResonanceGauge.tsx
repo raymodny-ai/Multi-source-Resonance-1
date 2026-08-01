@@ -1,7 +1,9 @@
 /**
- * 共振分数 Gauge（径向，0..5.0）
+ * 共振分数 Gauge（径向，0..100）
  * - ECharts gauge 实现
  * - 数值带单位 / 颜色随级别变化 / 骨架态
+ * - 满分 100：与后端 scoring.normalized_score（0-100）对齐，
+ *   维度卡 / AnalysisLatestCard / 告警阈值（25/50/75）同尺度。
  */
 import ReactECharts from 'echarts-for-react';
 import { memo } from 'react';
@@ -24,7 +26,10 @@ function levelColor(level: number | null): string {
 
 function ResonanceGaugeImpl({ score, alertLevel, loading, height = 240, className }: ResonanceGaugeProps) {
   const value = score ?? 0;
-  const max = 5.0;
+  // 综合共振分数统一 0-100 归一化尺度（后端 normalized_score）。
+  // 旧版硬编码 max=5.0（与后端 raw_score max 8.0 无映射关系，属遗留），
+  // 导致 43.37/5.0 溢出。现与后端 0-100 契约一致。
+  const max = 100.0;
   const color = levelColor(alertLevel);
 
   const option = {
@@ -98,7 +103,7 @@ function ResonanceGaugeImpl({ score, alertLevel, loading, height = 240, classNam
     <div
       className={cn('msr-card flex flex-col', className)}
       role="figure"
-      aria-label={`综合共振分数 ${score == null ? '暂无数据' : `${score.toFixed(2)} 分（满分 5.0），警报等级 ${alertLevel ?? 0}`}`}
+      aria-label={`综合共振分数 ${score == null ? '暂无数据' : `${score.toFixed(2)} 分（满分 100），警报等级 ${alertLevel ?? 0}`}`}
     >
       <ReactECharts
         option={option}
@@ -107,7 +112,7 @@ function ResonanceGaugeImpl({ score, alertLevel, loading, height = 240, classNam
         lazyUpdate
         opts={{ renderer: 'canvas' }}
       />
-      <div className="text-xs text-[var(--color-text-muted)] text-center -mt-4">综合共振分数 · 共振区间 0–5.0</div>
+      <div className="text-xs text-[var(--color-text-muted)] text-center -mt-4">综合共振分数 · 共振区间 0–100</div>
     </div>
   );
 }

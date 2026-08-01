@@ -7,12 +7,12 @@ import { get } from './client';
 export interface DashboardDataNormalized {
   /** 拉取时间戳 */
   fetched_at: string | null;
-  /** 综合共振分数 0..5.0（来自 signal.total_score） */
+  /** 综合共振分数 0..100（来自 signal.total_score，scoring.normalized_score） */
   resonance_score: number | null;
   /** 当前警报等级 0..3（来自 signal.alert_level 字符串转换） */
   alert_level: number | null;
   alert_level_raw: string | null;
-  /** 4 个维度分项（从 gex/vix/crypto/darkpool 提取） */
+  /** 4 个维度分项（0-100 归一化，来自 signal 的 gex/vix/crypto/darkpool 字段） */
   gex_score: number | null;
   vix_score: number | null;
   crypto_score: number | null;
