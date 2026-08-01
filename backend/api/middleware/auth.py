@@ -189,17 +189,18 @@ _PUBLIC_PREFIXES = ("/docs", "/redoc", "/openapi.json")
 # previously reachable without any token, allowing unauthenticated
 # scraping of internal state. Each entry is an exact path match.
 #
-# Owner decision 2026-08-02 (方案 C): exempt the two read-only endpoints the
-# React dashboard NEEDS to render (source connectivity + recent logs) back to
-# public GET. They carry no secrets — source-status is source health flags,
-# logs is the in-memory log ring. config / metrics / recent-alerts / etc.
-# remain JWT-protected (true admin/sensitive state).
+# Owner decision 2026-08-02 (方案 C, extended): exempt the read-only endpoints
+# the React frontend NEEDS to render, which carry NO secrets. Verified that
+# system_config table holds only 3 non-sensitive threshold values (no API
+# keys): alert_level_3_min / alpha_factor / gex_threshold. config sub-paths
+# (sources/weights/defaults) and config/audit were already public; only the
+# exact /api/config KV dump was blocked, breaking SettingsView panels.
 _SENSITIVE_GET_PATHS: set[str] = {
     "/api/system/pipeline-status",
     # "/api/system/source-status",  # exempt on purpose — dashboard SourceHealthGrid renders this
     # "/api/system/logs",            # exempt on purpose — SystemView renders this
-    "/api/config",
-    "/api/config/",
+    # "/api/config",                 # exempt on purpose — ConfigKVPanel/SettingsOverviewCards render this; no secrets in system_config
+    # "/api/config/",                # exempt on purpose (same as above)
     "/api/metrics/pipeline",
     "/api/metrics/eventbus",
     "/api/signals/recent-alerts",
