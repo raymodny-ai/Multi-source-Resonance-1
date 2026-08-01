@@ -10,10 +10,71 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Query, Request
 
 from backend.database import get_db
+from backend.quant import (
+    gex_analyze,
+    vix_analyze,
+    crypto_analyze,
+    darkpool_analyze,
+    calculate_score,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
+
+
+async def _live_compute_signal(
+    gex_data, vix_data, crypto_data, darkpool_data,
+) -> dict | None:
+    """Live-compute a synthetic signal from the latest raw dimension rows.
+
+    方案 A (2026-08-02): when there is no persisted signal_alerts row (e.g. the
+    signal history was cleared, or the current market stays below the LEVEL_1
+    trigger so no rows are ever written), the dashboard's four dimension score
+    cards would render "— / 100". Instead of showing empty, run each dimension
+    analyzer on the latest raw row and aggregate via calculate_score, returning
+    a synthetic signal dict the frontend treats identically to a real one.
+
+    Returns None when there is nothing to analyze (no raw data at all).
+    """
+    if not (gex_data or vix_data or crypto_data or darkpool_data):
+        return None
+
+    async def _score(analyzer, payload):
+        if not payload or not isinstance(payload, dict):
+            return 0.0
+        try:
+            res = await analyzer(payload)
+            if isinstance(res, dict):
+                return float(res.get("score") or 0.0)
+        except Exception:
+            logger.exception("live dimension analyze failed")
+        return 0.0
+
+    gex_s = await _score(gex_analyze, gex_data)
+    vix_s = await _score(vix_analyze, vix_data)
+    crypto_s = await _score(crypto_analyze, crypto_data)
+    dark_s = await _score(darkpool_analyze, darkpool_data)
+
+    scoring = calculate_score(
+        gex_score=gex_s, vix_score=vix_s,
+        crypto_score=crypto_s, darkpool_score=dark_s,
+    )
+    dims = scoring.get("dimension_scores", {})
+
+    return {
+        "total_score": float(scoring.get("normalized_score", 0.0)),
+        "raw_score": float(scoring.get("raw_score", 0.0)),
+        "gex_score": float(dims.get("gex", gex_s)),
+        "vix_score": float(dims.get("vix", vix_s)),
+        "crypto_score": float(dims.get("crypto", crypto_s)),
+        "darkpool_score": float(dims.get("darkpool", dark_s)),
+        "alert_level": str(scoring.get("level") or "LEVEL_0"),
+        "signals": scoring.get("signals", []),
+        # marker so the UI can distinguish live-computed vs persisted signal
+        "live_computed": True,
+        "trigger_time": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("")
@@ -63,6 +124,21 @@ async def dashboard_view():
         """)
         signal_row = await signal_cursor.fetchone()
         signal_data = dict(signal_row) if signal_row else None
+        signal_is_live = False
+        if signal_data is None:
+            # 方案 A: no persisted signal → live-compute the four dimension
+            # scores so the dashboard cards never render empty. The synthetic
+            # signal is NOT written to signal_alerts (keeps the alert history
+            # clean); it only feeds the UI read.
+            try:
+                live = await _live_compute_signal(
+                    gex_data, vix_data, crypto_data, darkpool_data,
+                )
+                if live is not None:
+                    signal_data = live
+                    signal_is_live = True
+            except Exception:
+                logger.exception("live-compute fallback failed")
 
     # FIX-01: aggregate mock-source set across dimensions from the DB-persisted
     # `is_mock` column (data_writer now propagates _meta.is_mock → DB column).
@@ -112,6 +188,7 @@ async def dashboard_view():
         "_meta": {
             "mock_sources": combined_mock_sources,
             "mock_count": combined_mock_count,
+            "signal_is_live": signal_is_live,
         },
     }
 
