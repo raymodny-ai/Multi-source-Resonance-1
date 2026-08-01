@@ -188,10 +188,16 @@ _PUBLIC_PREFIXES = ("/docs", "/redoc", "/openapi.json")
 # raw pipeline metrics, config secrets, or admin-only state — they were
 # previously reachable without any token, allowing unauthenticated
 # scraping of internal state. Each entry is an exact path match.
+#
+# Owner decision 2026-08-02 (方案 C): exempt the two read-only endpoints the
+# React dashboard NEEDS to render (source connectivity + recent logs) back to
+# public GET. They carry no secrets — source-status is source health flags,
+# logs is the in-memory log ring. config / metrics / recent-alerts / etc.
+# remain JWT-protected (true admin/sensitive state).
 _SENSITIVE_GET_PATHS: set[str] = {
     "/api/system/pipeline-status",
-    "/api/system/source-status",
-    "/api/system/logs",
+    # "/api/system/source-status",  # exempt on purpose — dashboard SourceHealthGrid renders this
+    # "/api/system/logs",            # exempt on purpose — SystemView renders this
     "/api/config",
     "/api/config/",
     "/api/metrics/pipeline",
