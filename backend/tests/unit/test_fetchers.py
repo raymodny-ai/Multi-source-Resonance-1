@@ -246,13 +246,24 @@ class TestCryptoFetcher:
 
     @pytest.mark.asyncio
     async def test_fetch_returns_result(self):
+        """Hyperliquid live output never fabricates unavailable OI signals."""
         from backend.fetchers.crypto_fetcher import CryptoFetcher
 
         config = _make_settings()
         fetcher = CryptoFetcher(config)
+        fetcher._post_json = AsyncMock(side_effect=[
+            {"universe": [{"name": "BTC", "ozSum": "25000"}]},
+            [{"fundingRate": "0.002"}],
+        ])
+        fetcher._fetch_coingecko = AsyncMock(return_value={})
+
         result = await fetcher.fetch()
-        assert "btc_funding_rate" in result
-        assert "timestamp" in result
+        assert result["btc_funding_rate"] == 0.002
+        assert result["btc_oi"] == 25000.0
+        assert result["oi_change_1h"] is None
+        assert result["oi_crash"] is False
+        assert result["liquidation_spike"] is False
+        assert result["leverage_cleanup"] is True
 
 
 # ===========================================================================
@@ -263,6 +274,7 @@ class TestDarkpoolFetcher:
 
     @pytest.mark.asyncio
     async def test_mock_data_structure(self):
+        """Mock remains synthetic while the SqueezeMetrics path stays factual."""
         from backend.fetchers.darkpool_fetcher import DarkpoolFetcher
 
         config = _make_settings()
@@ -272,6 +284,24 @@ class TestDarkpoolFetcher:
         assert "date" in data
         assert "aggregated_signal" in data
         assert isinstance(data["dix_value"], float)
+
+        response = MagicMock()
+        response.text = "date,price,dix,gex\n2026-07-30,6300,0.44,1.0\n2026-07-31,6350,0.46,1.2"
+        response.raise_for_status.return_value = None
+        client = MagicMock()
+        client.get = AsyncMock(return_value=response)
+        fetcher._get_client = AsyncMock(return_value=client)
+
+        live = await fetcher._fetch_squeezemetrics()
+        assert live["dix_value"] == 46.0
+        assert live["chartexchange_short_ratio"] is None
+        assert live["stockgrid_20d_slope"] is None
+        assert live["stockgrid_60d_slope"] is None
+        assert live["v_net"] is None
+        assert live["ema_fast_5"] is None
+        assert live["ema_slow_20"] is None
+        assert live["zero_cross_signal"] is None
+        assert live["momentum_reversal_signal"] is None
 
 
 # ===========================================================================

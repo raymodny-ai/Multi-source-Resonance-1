@@ -1,6 +1,6 @@
 """
 SQLite async database layer using aiosqlite.
-Manages connection pool, WAL mode, and full schema (11 tables + 5 views).
+Manages connection pool, WAL mode, and full schema (16 tables + 5 views).
 """
 
 import asyncio
@@ -52,31 +52,36 @@ async def _create_connection() -> aiosqlite.Connection:
 
 
 async def get_connection() -> aiosqlite.Connection:
-    """Acquire a connection from the pool."""
+    """Acquire a connection from the pool.
+
+    FIX-06: the semaphore slot is returned when connection creation fails,
+    preventing permanent pool exhaustion after repeated database errors.
+    """
     pool = _get_pool()
     await pool.acquire()
+    try:
+        if _connections:
+            conn = _connections.pop()
+            # Verify connection is still alive
+            try:
+                await conn.execute("SELECT 1")
+                return conn
+            except Exception:
+                pass
 
-    if _connections:
-        conn = _connections.pop()
-        # Verify connection is still alive
-        try:
-            await conn.execute("SELECT 1")
-            return conn
-        except Exception:
-            pass
-
-    return await _create_connection()
+        return await _create_connection()
+    except BaseException:
+        # Every failed borrow must undo its acquire exactly once.
+        pool.release()
+        raise
 
 
 def release_connection(conn: aiosqlite.Connection) -> None:
-    """Return a connection to the pool and release the semaphore slot.
+    """Return a connection to the pool and release its semaphore slot.
 
-    PIPE-13: the previous version called ``asyncio.create_task`` from
-    this synchronous function, which raised ``RuntimeError: no running
-    event loop`` at shutdown (the loop is already stopped by then) and
-    leaked the connection. We now close the connection synchronously
-    instead of scheduling a coroutine — it's cheap, and we can do it
-    in a fire-and-forget thread to avoid blocking the caller.
+    FIX-06: exactly one ``pool.release()`` is performed for each successful
+    ``pool.acquire()``. This also works when called during interpreter
+    shutdown, where no event loop may be running.
     """
     pool = _get_pool()
     if len(_connections) < _POOL_SIZE:
@@ -96,13 +101,8 @@ def release_connection(conn: aiosqlite.Connection) -> None:
             # Last resort: just drop the reference. The OS will reclaim
             # the underlying file handle on process exit.
             pass
-    # Always make room for another acquire — the slot belongs to this borrow.
-    try:
-        pool.release()
-    except ValueError:
-        # Pool released more than acquired (shouldn't happen) — ignore.
-        pass
-    _get_pool().release()
+    # Exactly one release per successful acquire.
+    pool.release()
 
 
 def _close_sync(conn: aiosqlite.Connection) -> None:
@@ -133,7 +133,7 @@ async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Schema DDL — 11 tables
+# Schema DDL — 16 tables
 # ─────────────────────────────────────────────────────────────────────────────
 
 SCHEMA_TABLES = """
@@ -214,8 +214,18 @@ CREATE TABLE IF NOT EXISTS alpha_history (
 CREATE INDEX IF NOT EXISTS idx_alpha_history_ts
     ON alpha_history (timestamp DESC);
 
+-- Authentication users (seeded from MSR_ADMIN_* on first run)
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'admin',
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_active     BOOLEAN NOT NULL DEFAULT 1
+);
+
 -- ============================================================
--- Other Dimension Domain (3 tables)
+-- Other Dimension Domain (7 tables)
 -- ============================================================
 
 -- VIX term structure analysis (9 columns)
@@ -642,8 +652,33 @@ async def init_db() -> None:
             except Exception:
                 pass  # Column already exists
 
+        # Seed the initial administrator only when explicitly configured.
+        # Pydantic-settings loads these MSR_* values from .env or the process
+        # environment. Never fall back to a built-in username or password.
+        admin_username = (settings.msr_admin_username or "").strip()
+        admin_password = settings.msr_admin_password or ""
+        if admin_username and admin_password:
+            from backend.utils.security import hash_password
+
+            await conn.execute(
+                """
+                INSERT OR IGNORE INTO users (username, password_hash, role)
+                VALUES (?, ?, 'admin')
+                """,
+                (admin_username, hash_password(admin_password)),
+            )
+        else:
+            cursor = await conn.execute(
+                "SELECT 1 FROM users WHERE role = 'admin' AND is_active = 1 LIMIT 1"
+            )
+            if await cursor.fetchone() is None:
+                logger.warning(
+                    "No admin user configured. Set MSR_ADMIN_USERNAME and "
+                    "MSR_ADMIN_PASSWORD to create one."
+                )
+
         await conn.commit()
-        logger.info("Database schema initialized successfully (11 tables + 5 views)")
+        logger.info("Database schema initialized successfully (16 tables + 5 views)")
 
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")

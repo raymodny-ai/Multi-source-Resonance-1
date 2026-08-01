@@ -54,32 +54,29 @@ class MessageResponse(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# In-memory user store (for demo; production should use DB)
+# Database-backed user authentication
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Default admin user — password is 'admin' hashed with bcrypt
-# In production, load from database or environment
-_DEFAULT_USERS: dict[str, str] = {}
+async def _verify_user(username: str, password: str) -> bool:
+    """Verify active user credentials against the database.
 
+    FIX-05: no built-in account exists; administrators are seeded into the
+    ``users`` table from explicit ``MSR_ADMIN_*`` configuration.
+    """
+    async with get_db() as db:
+        cursor = await db.execute(
+            """
+            SELECT password_hash
+            FROM users
+            WHERE username = ? AND is_active = 1
+            """,
+            (username,),
+        )
+        row = await cursor.fetchone()
 
-def _get_default_admin_hash() -> str:
-    """Lazily compute the default admin password hash."""
-    if "admin" not in _DEFAULT_USERS:
-        from backend.utils.security import hash_password
-        _DEFAULT_USERS["admin"] = hash_password("admin")
-    return _DEFAULT_USERS["admin"]
-
-
-def _verify_user(username: str, password: str) -> bool:
-    """Verify username/password against the user store."""
-    # Check default users
-    if username == "admin":
-        return verify_password(password, _get_default_admin_hash())
-    # Check custom users in _DEFAULT_USERS
-    hashed = _DEFAULT_USERS.get(username)
-    if hashed and verify_password(password, hashed):
-        return True
-    return False
+    if row is None:
+        return False
+    return verify_password(password, row["password_hash"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -131,7 +128,7 @@ async def _load_blacklist_from_db() -> None:
 @limiter.limit(AUTH_LIMIT)
 async def login(request: Request, body: LoginRequest):
     """Authenticate user and return JWT access + refresh tokens."""
-    if not _verify_user(body.username, body.password):
+    if not await _verify_user(body.username, body.password):
         logger.warning(f"Failed login attempt for user: {body.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

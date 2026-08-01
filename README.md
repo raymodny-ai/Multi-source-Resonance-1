@@ -13,7 +13,7 @@
 
 > 基于 **三层解耦架构 V2.0** 的多维度金融监控系统。实时追踪美股暗盘资金、做市商 Gamma 敞口、VIX 期限结构、加密杠杆清洗及跨资产共振，通过 **四维 Regime Transition 评分** 自动识别“流动性清算衰竭”级抄底信号，多渠道推送告警。
 >
-> **v4.1**：完成数据获取与计算全面修复（**P0+P1+P2+P3 共 51 项** FIX），统一评分尺度为 0–100、加固安全默认、收紧 CORS、补齐 Hawkes/贝叶斯集成、修复 EventBus 泄漏与 VACUUM 锁争用。Frontend 仍是 React 19 + TypeScript + Spark Design 的指挥中心体验，支持桌面/平板/移动端响应式布局、实时 WebSocket、渐进式信息披露与全键可达性。
+> **v4.1**：完成数据获取与计算全面修复（**P0+P1+P2+P3 共 51 项** FIX），并完成 VERIFY-001 后续残留修复：连接池信号量严格一借一还、管理员改为数据库认证、真实数据路径不再生成随机字段。统一评分尺度为 0–100、加固安全默认、收紧 CORS、补齐 Hawkes/贝叶斯集成、修复 EventBus 泄漏与 VACUUM 锁争用。Frontend 仍是 React 19 + TypeScript + Spark Design 的指挥中心体验，支持桌面/平板/移动端响应式布局、实时 WebSocket、渐进式信息披露与全键可达性。
 
 ---
 
@@ -70,10 +70,10 @@
 | **完整 Web UI（v4.0）** | React 19 + TypeScript + Spark Design UI + echarts-for-react + TanStack Query + Zustand |
 | **指挥中心体验** | 9 页面、实时数据流、渐进式信息披露、响应式布局、无障碍访问 |
 
-### 1.3 v4.1 当前状态（2026-07-31）
+### 1.3 v4.1 当前状态（2026-08-01）
 
 - **后端**：FastAPI 监听 `127.0.0.1:8524`（默认 SEC-09 收紧），63+ 个 REST 路由 + WebSocket（端口 `8524`，前端 Vite proxy 转发 `/api` & `/ws`）
-- **数据库**：SQLite（WAL），11 张表，主要数据表：`gex_strikes` 3332 / `dark_pool_metrics` 253 / `gex_history` 103 / `gex_snapshots` 90+ / `vix_analysis` 7
+- **数据库**：SQLite（WAL），16 张核心 schema 表 + 5 个视图；管理员凭据保存在 `users` 表，首次启动仅从 `MSR_ADMIN_USERNAME` / `MSR_ADMIN_PASSWORD` 显式创建
 - **前端**：React 19 + TypeScript 5.7，Vite 6 构建，Spark Design UI（`sparkdesign@^0.4.11`），echarts-for-react 图表
   - **9 页面**：Dashboard / Signals / GEX / VIX / Crypto / Darkpool / Analysis / System / Settings
   - **组件**：35+ 个（按页面分组，含 6 个 GEX、3 个 VIX、2 个 Crypto、2 个 Darkpool、3 个 Analysis、6 个 System、5 个 Settings、5 个 Dashboard、3 个 Signals、3 个公共）
@@ -319,28 +319,31 @@ Multi-source-Resonance 1/
 
 ## 5. 数据架构
 
-### 5.1 数据库概览（11 张表）
+### 5.1 数据库概览（16 张核心 schema 表）
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  GEX 域 (4 表)                                                  │
-│  ├─ gex_snapshots         — GEXMetrix 摘要 (17 列, 90 行)       │
-│  ├─ gex_strikes           — 逐 strike 真实 GEX/OI (12 列, 3332) │
-│  ├─ gex_history           — SqueezeMetrics 日级历史 (8 列, 103)  │
-│  └─ alpha_history         — alpha 因子历史 (9 列)               │
+│  ├─ gex_snapshots         — GEXMetrix 摘要与质量标记             │
+│  ├─ gex_strikes           — 逐 strike 真实 GEX/OI               │
+│  ├─ gex_history           — SqueezeMetrics 日级历史              │
+│  └─ alpha_history         — alpha 因子历史                      │
 ├─────────────────────────────────────────────────────────────────┤
-│  其他维度域 (4 表)                                               │
-│  ├─ vix_analysis          — VIX 期限结构 (9 列, 7 行)            │
-│  ├─ dark_pool_metrics     — 暗池 DIX/EMA (18 列, 253 行)         │
-│  ├─ crypto_derivatives    — 加密衍生品 (10 列, 26 行)            │
-│  └─ system_config         — KV 配置 (3 行)                       │
+│  其他维度域 (7 表)                                               │
+│  ├─ vix_analysis / vix_term_structure                           │
+│  ├─ dark_pool_history / dark_pool_metrics                       │
+│  ├─ options_greeks / options_greeks_strikes                     │
+│  └─ crypto_derivatives                                          │
 ├─────────────────────────────────────────────────────────────────┤
-│  信号 & 审计域 (3 表)                                            │
-│  ├─ signal_alerts         — 共振信号告警 (12 列)                │
-│  ├─ validation_audit_log  — 数据校验日志 (14 列)                │
-│  └─ gateway_snapshots     — Gateway 快照 (10 列)                │
+│  信号与审计域 (3 表)                                             │
+│  ├─ signal_alerts / validation_audit_log / gateway_snapshots    │
+├─────────────────────────────────────────────────────────────────┤
+│  认证域 (1 表)             users — 数据库用户与密码哈希          │
+│  系统配置 (1 表)           system_config — KV 配置               │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+> `token_blacklist` 由认证子系统启动时单独创建，不计入上述核心 `SCHEMA_TABLES` 16 表。
 
 ### 5.2 核心表 schema
 
@@ -1225,7 +1228,7 @@ npm run build           # Vite 生产构建
 | **v3.0** | 2026-Q2 | 玻璃拟态 UI + 设计令牌 + 双主题 + LiveTape |
 | **v3.1** | 2026-Q3 | 快照自动记录 + TimelineReplay + SnapshotGallery |
 | **v4.0** | 2026-Q4 | **前端重写：Vue 3 → React 19 + Spark Design UI**，9 页面 + 响应式 + 无障碍 + WebSocket 优化 |
-| **v4.1** | 2026-07-31（当前） | **数据获取与计算全面修复（51 项 FIX）**：P0 安全默认 + P1 竞态/降级 + P2 事件流/UI + P3 代码质量。最终 187 个后端测试全部通过 + 前端 `tsc --noEmit` 零错误。 |
+| **v4.1** | 2026-08-01（当前） | **数据获取与计算全面修复（51 项 FIX + 3 项残留验证修复）**：连接池 acquire/release 严格配对；移除 `admin/admin` 并启用数据库用户认证；Darkpool/Crypto 真实路径缺失字段使用 `NULL`，不再伪造随机信号。187 个后端测试全部通过 + 前端 `tsc --noEmit` 零错误。 |
 
 ### v4.1 修复总览（51 项）
 
@@ -1252,6 +1255,8 @@ npm run build           # Vite 生产构建
 
 | 变量 | 说明 | 缺省行为 |
 |------|------|----------|
+| `MSR_ADMIN_USERNAME` | 首次启动管理员用户名（FIX-05 残留） | 不设 → 不创建任何默认管理员 |
+| `MSR_ADMIN_PASSWORD` | 首次启动管理员密码（FIX-05 残留） | 不设 → 不创建任何默认管理员；禁止依赖 `admin/admin` |
 | `JWT_SECRET` | JWT 签名密钥（FIX-05） | 不设 → 生成**本次进程内临时密钥**，重启后所有 token 失效 |
 | `MSR_HOST` | 后端绑定地址（SEC-09） | 默认 `127.0.0.1`；LAN 部署需设 `0.0.0.0` |
 | `CORS_ORIGINS` | CORS allowlist（FIX-10） | 默认 `http://localhost:5173,http://localhost:3000`；`*` 会被启动拒绝 |
@@ -1262,6 +1267,7 @@ npm run build           # Vite 生产构建
 
 ### 18.2 部署前检查清单
 
+- [ ] 首次部署设置 `MSR_ADMIN_USERNAME` 与强密码 `MSR_ADMIN_PASSWORD`；已有同名用户不会被启动流程覆盖
 - [ ] 设置 `JWT_SECRET`（≥32 字节随机串）
 - [ ] 根据实际部署场景设置 `MSR_HOST` 和 `CORS_ORIGINS`
 - [ ] 如走代理，设置 `MSR_HTTPS_PROXY`（或 `proxy_overrides` JSON）
@@ -1270,7 +1276,15 @@ npm run build           # Vite 生产构建
 - [ ] 若裸机部署且需 LAN 访问，设 `MSR_VITE_HOST=0.0.0.0`
 - [ ] 首次启动后检查 `/api/health` 返回 200 与 `version`
 
-### 18.3 VACUUM 维护
+### 18.3 VERIFY-001 残留修复
+
+| 修复项 | 当前行为 |
+|--------|----------|
+| FIX-06 | `get_connection()` 创建失败会归还信号量；`release_connection()` 每次借用仅释放一次，避免池耗尽和超额并发 |
+| FIX-05 残留 | `users` 表保存 bcrypt 哈希；登录只查询启用用户；系统不再内置 `admin/admin` |
+| FIX-13 | SqueezeMetrics / Hyperliquid 真实路径无法提供的 short ratio、StockGrid、EMA、OI 变化及清算字段使用 `None` / `False`，随机值仅保留在明确的 mock 生成函数中 |
+
+### 18.4 VACUUM 维护
 
 `vacuum_and_analyze` 现在走 **WAL checkpoint → 重试 + defer** 路径（FIX-25）。cron 周期中如遇到 `status=deferred`，说明被写入锁压住，会在下个周期重试，不会报“错误”误导运营。
 

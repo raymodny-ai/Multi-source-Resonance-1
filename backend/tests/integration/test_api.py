@@ -57,10 +57,15 @@ async def app_client(tmp_path: Path):
         # Create the database file so get_db() works
         import aiosqlite
         from backend.database import SCHEMA_TABLES, SCHEMA_VIEWS, SEED_CONFIG
+        from backend.utils.security import hash_password
         conn = await aiosqlite.connect(db_path)
         await conn.executescript(SCHEMA_TABLES)
         await conn.executescript(SCHEMA_VIEWS)
         await conn.executescript(SEED_CONFIG)
+        await conn.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
+            ("test_admin", hash_password("Test-Admin-Password-2026!")),
+        )
         await conn.commit()
         await conn.close()
 
@@ -79,6 +84,12 @@ async def app_client(tmp_path: Path):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             yield ac
+
+        # ASGITransport does not run the application's lifespan hooks here;
+        # close pooled aiosqlite worker threads explicitly after each fixture.
+        import backend.database as database
+        await database.close_db()
+        database._pool = None
 
 
 @pytest_asyncio.fixture
@@ -123,8 +134,8 @@ class TestAuthFlow:
     @pytest.mark.asyncio
     async def test_login_success(self, app_client: AsyncClient):
         resp = await app_client.post("/api/auth/login", json={
-            "username": "admin",
-            "password": "admin",
+            "username": "test_admin",
+            "password": "Test-Admin-Password-2026!",
         })
         assert resp.status_code == 200
         data = resp.json()
@@ -132,18 +143,39 @@ class TestAuthFlow:
         assert "refresh_token" in data
         assert data["token_type"] == "bearer"
 
+        # FIX-06: failed creation returns the slot, and a successful borrow is
+        # released exactly once (the semaphore may never exceed its capacity).
+        import backend.database as database
+        from unittest.mock import AsyncMock, MagicMock
+
+        test_pool = asyncio.Semaphore(1)
+        with patch.object(database, "_pool", test_pool), \
+             patch.object(database, "_connections", []), \
+             patch.object(
+                 database,
+                 "_create_connection",
+                 AsyncMock(side_effect=OSError("database unavailable")),
+             ):
+            with pytest.raises(OSError):
+                await database.get_connection()
+            assert test_pool._value == 1
+
+            await test_pool.acquire()
+            database.release_connection(MagicMock())
+            assert test_pool._value == 1
+
     @pytest.mark.asyncio
     async def test_login_wrong_password(self, app_client: AsyncClient):
         resp = await app_client.post("/api/auth/login", json={
             "username": "admin",
-            "password": "wrong_password",
+            "password": "admin",
         })
         assert resp.status_code == 401
 
     @pytest.mark.asyncio
     async def test_login_missing_fields(self, app_client: AsyncClient):
         resp = await app_client.post("/api/auth/login", json={
-            "username": "admin",
+            "username": "test_admin",
         })
         assert resp.status_code == 422
 
@@ -151,8 +183,8 @@ class TestAuthFlow:
     async def test_refresh_token_flow(self, app_client: AsyncClient):
         # Login first
         login_resp = await app_client.post("/api/auth/login", json={
-            "username": "admin",
-            "password": "admin",
+            "username": "test_admin",
+            "password": "Test-Admin-Password-2026!",
         })
         refresh_token = login_resp.json()["refresh_token"]
 
@@ -175,8 +207,8 @@ class TestAuthFlow:
     async def test_logout_success(self, app_client: AsyncClient):
         # Login
         login_resp = await app_client.post("/api/auth/login", json={
-            "username": "admin",
-            "password": "admin",
+            "username": "test_admin",
+            "password": "Test-Admin-Password-2026!",
         })
         access_token = login_resp.json()["access_token"]
 
@@ -264,7 +296,7 @@ class TestRateLimiting:
         responses = []
         for _ in range(15):
             resp = await app_client.post("/api/auth/login", json={
-                "username": "admin",
+                "username": "test_admin",
                 "password": "wrong",
             })
             responses.append(resp.status_code)

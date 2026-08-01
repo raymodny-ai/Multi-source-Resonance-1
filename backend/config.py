@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     crypto_api_key: Optional[str] = None
     darkpool_api_key: Optional[str] = None
 
+    # ── Administrator bootstrap (FIX-05) ──────────────────────────────────────
+    # Both values must be supplied explicitly. They are used by init_db() only
+    # to seed a missing users-table row; no built-in credentials exist.
+    msr_admin_username: Optional[str] = None
+    msr_admin_password: Optional[str] = None
+
     # ── JWT Authentication ────────────────────────────────────────────────────
     # FIX-05: jwt_secret has no default value — must be supplied via env (.env).
     # The application refuses to start with the previous weak default

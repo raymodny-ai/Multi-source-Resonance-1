@@ -99,15 +99,17 @@ class CryptoFetcher(BaseFetcher):
         latest_funding = funding_resp[-1] if funding_resp else {}
         funding_rate = float(latest_funding.get("fundingRate", 0.0))
 
-        # Calculate derived signals
         oi = float(btc_meta["ozSum"]) if btc_meta and "ozSum" in btc_meta else None
-        oi_change = random.uniform(-0.05, 0.05)  # Placeholder until full OI history
 
-        # Detect leverage cleanup signals
-        leverage_cleanup = abs(funding_rate) > 0.001 or (oi_change and oi_change < -0.03)
+        # FIX-13: OI change requires historical OI snapshots. Keep it absent
+        # until that history is available rather than fabricating a live value.
+        oi_change = None
+
+        # Derived signals use only fields returned by the real upstream source.
+        leverage_cleanup = abs(funding_rate) > 0.001
         funding_anomaly = abs(funding_rate) > 0.005
-        oi_crash = oi_change is not None and oi_change < -0.05
-        liquidation_spike = leverage_cleanup  # Simplified proxy
+        oi_crash = False
+        liquidation_spike = False
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),

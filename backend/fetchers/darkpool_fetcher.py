@@ -62,17 +62,14 @@ class DarkpoolFetcher(BaseFetcher):
         # Header: date,price,dix,gex
         # Rows are chronological ASC (2011-05-02 first, today last)
         latest = lines[-1].split(",")
-        prev = lines[-2].split(",") if len(lines) > 1 else latest
 
         # Extract DIX value (column index 2: 0=date, 1=price, 2=dix, 3=gex)
         dix_value = float(latest[2]) if len(latest) > 2 else None
         gex_value = float(latest[3]) if len(latest) > 3 else None
         spx_price = float(latest[1]) if len(latest) > 1 else None
-        prev_dix = float(prev[2]) if len(prev) > 2 and len(lines) > 1 else None
 
-        # Compute signals (DIX ~0.40 range; bullish when high, bearish when low)
+        # Compute the DIX signal from the real CSV value only.
         dix_signal = dix_value is not None and dix_value > 0.45
-        short_ratio = random.uniform(1.5, 4.0) if dix_value else None
 
         # Build history (last 90 days for dark_pool_history table)
         history = []
@@ -98,25 +95,28 @@ class DarkpoolFetcher(BaseFetcher):
                 "source": "squeezemetrics",
             })
 
+        # FIX-13: fields unavailable from SqueezeMetrics are explicitly absent.
+        # Downstream analyzers skip ``None`` inputs instead of scoring fabricated
+        # random values as if they were real market observations.
         return {
             "date": date.today().isoformat(),
             "dix_value": dix_value * 100 if dix_value is not None else None,  # scale to %
             "gex_value": gex_value,
             "spx_price": spx_price,
-            "chartexchange_short_ratio": short_ratio,
-            "stockgrid_20d_slope": random.uniform(-0.5, 0.5),
-            "stockgrid_60d_slope": random.uniform(-0.3, 0.3),
-            "stockgrid_divergence": random.random() < 0.2,
-            "dbmf_ma5_recovery": random.random() < 0.3,
+            "chartexchange_short_ratio": None,
+            "stockgrid_20d_slope": None,
+            "stockgrid_60d_slope": None,
+            "stockgrid_divergence": False,
+            "dbmf_ma5_recovery": False,
             "dix_signal": dix_signal,
-            "short_ratio_signal": short_ratio is not None and short_ratio > 3.0,
-            "stockgrid_signal": random.random() < 0.25,
+            "short_ratio_signal": False,
+            "stockgrid_signal": False,
             "aggregated_signal": dix_signal,
-            "v_net": random.uniform(-500, 500),
-            "ema_fast_5": random.uniform(-200, 200),
-            "ema_slow_20": random.uniform(-300, 300),
-            "zero_cross_signal": "bullish_cross" if random.random() < 0.3 else None,
-            "momentum_reversal_signal": "reversal_up" if random.random() < 0.2 else None,
+            "v_net": None,
+            "ema_fast_5": None,
+            "ema_slow_20": None,
+            "zero_cross_signal": None,
+            "momentum_reversal_signal": None,
             "history": history,
         }
 
