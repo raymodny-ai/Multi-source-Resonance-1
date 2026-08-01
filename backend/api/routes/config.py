@@ -175,7 +175,7 @@ async def restore_defaults(request: Request):
     defaults = {
         "alpha_factor": ("1.0", "GEX calibration coefficient"),
         "gex_threshold": ("35000000", "GEX threshold value (35M)"),
-        "alert_level_3_min": ("3.5", "Minimum score for LEVEL_3 alert"),
+        "alert_level_3_min": ("75", "Minimum score for LEVEL_3 alert (normalized 0-100)"),
     }
 
     async with get_db() as db:

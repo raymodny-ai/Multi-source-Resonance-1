@@ -136,7 +136,7 @@ async def get_auto_polling(request: Request):
     pipeline = request.app.state.pipeline
     return {
         "enabled": pipeline.is_running,
-        "interval_seconds": pipeline.config.fetch_interval_second,
+        "interval_seconds": pipeline.config.fetch_interval_seconds,
     }
 
 

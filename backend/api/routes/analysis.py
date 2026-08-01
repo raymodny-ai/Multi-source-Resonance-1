@@ -163,10 +163,10 @@ async def analysis_scoring():
         "alert_level": data.get("alert_level"),
         "hawkes_branching_ratio": data.get("hawkes_branching_ratio"),
         "acknowledged": data.get("acknowledged"),
-        "max_score": 5.0,
+        "max_score": 100.0,
         "level_thresholds": {
-            "LEVEL_1": 2.0,
-            "LEVEL_2": 3.0,
-            "LEVEL_3": 3.5,
+            "LEVEL_1": 25.0,
+            "LEVEL_2": 50.0,
+            "LEVEL_3": 75.0,
         },
     }

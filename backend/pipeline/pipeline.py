@@ -37,11 +37,14 @@ class Pipeline:
         await pipeline.stop()    # graceful shutdown
     """
 
-    # Alert level thresholds
+    # Alert level thresholds on the NORMALIZED 0-100 scale.
+    # The resonance scorer (backend/quant/scoring.py) returns total_score as a
+    # normalized 0-100 value; _basic_score below also emits a normalized total.
+    # (Matches scoring.LEVEL_THRESHOLDS: LEVEL_1 25-50 / LEVEL_2 50-75 / LEVEL_3 75+)
     LEVEL_THRESHOLDS = {
-        "LEVEL_1": 2.0,
-        "LEVEL_2": 3.0,
-        "LEVEL_3": 3.5,
+        "LEVEL_1": 25.0,
+        "LEVEL_2": 50.0,
+        "LEVEL_3": 75.0,
     }
 
     def __init__(
@@ -353,9 +356,12 @@ class Pipeline:
             elif "dark" in src_lower or "pool" in src_lower:
                 darkpool_score = result.get("darkpool_score", 0.0) or 0.0
 
-        total = gex_score + vix_score + crypto_score + darkpool_score
+        # Normalize: each dimension is 0-100; sum and cap at 100 to stay on the
+        # normalized scale the alert thresholds expect. More dimensions firing
+        # pushes the total up (resonance), but it never exceeds 100.
+        total = min(gex_score + vix_score + crypto_score + darkpool_score, 100.0)
         return {
-            "total_score": total,
+            "total_score": round(total, 2),
             "gex_score": gex_score,
             "vix_score": vix_score,
             "crypto_score": crypto_score,
