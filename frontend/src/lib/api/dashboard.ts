@@ -110,11 +110,24 @@ export function normalizeDashboard(raw: RawDashboardResponse): DashboardDataNorm
     gex_score: toNum(sig?.gex_score) ?? toNum(gex?.gex_score),
     vix_score: toNum(sig?.vix_score) ?? toNum(vix?.vix_score),
     crypto_score: toNum(sig?.crypto_score) ?? toNum(crypto?.crypto_score),
-    darkpool_score: toNum(sig?.darkpool_score) ?? toNum(dp?.dix_value),
+    // FE-02: darkpool fallback used to be ``toNum(dp?.dix_value)`` which
+    // silently maps a 0..1 short-interest ratio onto the 0..100 score
+    // axis. Show "—" instead so the UI does not pretend we have a
+    // normalized score when the analyzer never produced one.
+    darkpool_score: toNum(sig?.darkpool_score),
     hawkes_branching_ratio: toNum(sig?.hawkes_branching_ratio),
-    last_cycle_at: toNum(sig?.trigger_time) != null
-      ? String(sig?.trigger_time ?? '')
-      : raw.fetched_at,
+    // FE-01: previous version used ``toNum(trigger_time) != null`` as a
+    // presence check, but ``toNum`` on an ISO string returns ``NaN`` and
+    // ``NaN != null`` is ``true`` — so the comparison always passed and
+    // the null branch was unreachable for valid ISO strings. Use a
+    // direct non-empty-string check instead.
+    last_cycle_at: (() => {
+      const t = sig?.trigger_time;
+      if (t != null && String(t).trim().length > 0) {
+        return String(t);
+      }
+      return raw.fetched_at ?? null;
+    })(),
     mock_sources: raw._meta?.mock_sources ?? [],
     mock_count: (() => {
       const v = raw._meta?.mock_count;

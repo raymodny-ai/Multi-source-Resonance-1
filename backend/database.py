@@ -71,17 +71,31 @@ async def get_connection() -> aiosqlite.Connection:
 def release_connection(conn: aiosqlite.Connection) -> None:
     """Return a connection to the pool and release the semaphore slot.
 
-    The semaphore is acquired in get_connection() but was never released here
-    (report M-01): after _POOL_SIZE acquisitions the pool semaphore stayed
-    exhausted, so every later get_db() would block forever — a deadlock/lock
-    leak. Releasing the slot here fixes it.
+    PIPE-13: the previous version called ``asyncio.create_task`` from
+    this synchronous function, which raised ``RuntimeError: no running
+    event loop`` at shutdown (the loop is already stopped by then) and
+    leaked the connection. We now close the connection synchronously
+    instead of scheduling a coroutine — it's cheap, and we can do it
+    in a fire-and-forget thread to avoid blocking the caller.
     """
     pool = _get_pool()
     if len(_connections) < _POOL_SIZE:
         _connections.append(conn)
     else:
-        # Pool full, close the connection
-        asyncio.create_task(conn.close())
+        # Pool full, close the connection synchronously. PIPE-13:
+        # this is a sync function, so we cannot use asyncio.create_task.
+        # Run the close in a background thread instead.
+        try:
+            import threading
+            threading.Thread(
+                target=lambda: _close_sync(conn),
+                daemon=True,
+                name="aiosqlite-close",
+            ).start()
+        except Exception:
+            # Last resort: just drop the reference. The OS will reclaim
+            # the underlying file handle on process exit.
+            pass
     # Always make room for another acquire — the slot belongs to this borrow.
     try:
         pool.release()
@@ -89,6 +103,19 @@ def release_connection(conn: aiosqlite.Connection) -> None:
         # Pool released more than acquired (shouldn't happen) — ignore.
         pass
     _get_pool().release()
+
+
+def _close_sync(conn: aiosqlite.Connection) -> None:
+    """Best-effort sync close of an aiosqlite connection (PIPE-13)."""
+    try:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(conn.close())
+        finally:
+            loop.close()
+    except Exception:
+        # Already closed or otherwise unusable — nothing to do.
+        pass
 
 
 @asynccontextmanager

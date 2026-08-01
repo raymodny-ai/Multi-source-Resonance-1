@@ -141,6 +141,13 @@ async def lifespan(app: FastAPI):
     await pipeline.stop()
     logger.info("Pipeline stopped")
 
+    # PIPE-08: drain the event bus so in-flight handler tasks finish
+    # cleanly instead of being silently cancelled.
+    try:
+        await event_bus.drain(timeout=5.0)
+    except Exception as exc:
+        logger.warning(f"EventBus drain failed: {exc}")
+
     # Shutdown scheduler
     stop_scheduler()
     await close_db()

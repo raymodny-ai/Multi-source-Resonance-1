@@ -4,6 +4,8 @@ Supports wildcard subscriptions, error isolation, and event history.
 """
 
 import asyncio
+import contextvars
+import copy
 import fnmatch
 import logging
 import time
@@ -16,15 +18,44 @@ logger = logging.getLogger(__name__)
 # Type alias for async handler functions
 Handler = Callable[[str, dict], Coroutine[Any, Any, None]]
 
+# ContextVar so the static _safe_invoke helpers can find the active bus
+# without holding a reference per-task. The pipeline publishes from a
+# single bus per process, so this is safe.
+_current_bus: contextvars.ContextVar["EventBus | None"] = contextvars.ContextVar(
+    "current_event_bus", default=None
+)
+
+
+def _get_current_bus() -> "EventBus | None":
+    return _current_bus.get()
+
 
 @dataclass(slots=True)
 class EventRecord:
-    """Immutable record of a published event."""
+    """Record of a published event.
+
+    PIPE-16: ``data`` is a deep-copy snapshot taken at publish time so
+    later mutations of the caller's dict do not silently rewrite the
+    history. The previous version held a direct reference, which meant
+    any handler that mutated its ``data`` argument corrupted the bus's
+    audit log.
+    """
     event_type: str
     data: dict
     timestamp: float = field(default_factory=time.time)
     handler_count: int = 0
     error_count: int = 0
+
+    def __post_init__(self) -> None:
+        # FIX-16: deep-copy at construction so the record is decoupled
+        # from whatever dict the publisher passed in.
+        try:
+            self.data = copy.deepcopy(self.data)
+        except Exception:
+            # Fall back to a shallow copy if deep-copy fails (e.g. a
+            # non-pickleable value in the payload). This is still better
+            # than a shared reference.
+            self.data = dict(self.data)
 
 
 class EventBus:
@@ -56,8 +87,15 @@ class EventBus:
         # Metrics
         self._total_published: int = 0
         self._total_errors: int = 0
+        # PIPE-08: keep a bounded set of in-flight handler tasks so
+        # shutdown can await them instead of having them silently
+        # cancelled mid-dispatch.
+        self._inflight_tasks: set[asyncio.Task] = set()
         # Lock for subscriber mutations
         self._lock = asyncio.Lock()
+        # PIPE-09: register this bus as the "current" one for the
+        # static _safe_invoke helpers to find.
+        _current_bus.set(self)
 
     # ── Subscribe / Unsubscribe ───────────────────────────────────────────────
 
@@ -134,11 +172,16 @@ class EventBus:
             logger.debug(f"No handlers for '{event_type}'")
             return
 
-        # Schedule all handlers concurrently
+        # PIPE-08: keep a strong reference to every dispatched task so
+        # shutdown can drain them. ``add_done_callback`` removes the task
+        # from the set as soon as it completes (success or failure), so
+        # the set stays bounded.
         for handler in handlers:
-            asyncio.create_task(
+            task = asyncio.create_task(
                 self._safe_invoke(handler, event_type, data, record)
             )
+            self._inflight_tasks.add(task)
+            task.add_done_callback(self._inflight_tasks.discard)
 
     async def emit(self, event_type: str, data: dict | None = None) -> list[Any]:
         """Publish an event and wait for all handlers to complete.
@@ -242,11 +285,26 @@ class EventBus:
         data: dict,
         record: EventRecord,
     ) -> None:
-        """Invoke a handler, catching and logging any exception."""
+        """Invoke a handler, catching and logging any exception.
+
+        PIPE-09: increment the bus-level ``_total_errors`` counter on
+        every handler failure so ``get_stats()`` reflects reality. The
+        previous version only updated the per-record counter, so the
+        bus-level total stayed at 0 forever.
+        """
         try:
             await handler(event_type, data)
         except Exception as exc:
             record.error_count += 1
+            # PIPE-09: surface the failure in the bus-wide counter.
+            # We reach into the bus instance via a thread-local lookup
+            # so this static helper can still update the singleton.
+            try:
+                bus = _get_current_bus()
+                if bus is not None:
+                    bus._total_errors += 1
+            except Exception:
+                pass
             logger.error(
                 f"EventBus handler error for '{event_type}': "
                 f"{type(exc).__name__}: {exc}",
@@ -265,9 +323,41 @@ class EventBus:
             return await handler(event_type, data)
         except Exception as exc:
             record.error_count += 1
+            # PIPE-09: same as _safe_invoke — keep the bus-level counter honest.
+            try:
+                bus = _get_current_bus()
+                if bus is not None:
+                    bus._total_errors += 1
+            except Exception:
+                pass
             logger.error(
                 f"EventBus handler error for '{event_type}': "
                 f"{type(exc).__name__}: {exc}",
                 exc_info=True,
             )
             return None
+
+    # ── Shutdown ───────────────────────────────────────────────────────────────
+
+    async def drain(self, timeout: float = 5.0) -> None:
+        """PIPE-08: wait for all in-flight handler tasks to finish.
+
+        Called during application shutdown. Safe to invoke when no tasks
+        are running (immediate return). Per-task cancellation is
+        escalated only if the global timeout expires.
+        """
+        if not self._inflight_tasks:
+            return
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*self._inflight_tasks, return_exceptions=True),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"EventBus.drain: {len(self._inflight_tasks)} handler(s) "
+                f"still in flight after {timeout}s; cancelling"
+            )
+            for task in list(self._inflight_tasks):
+                if not task.done():
+                    task.cancel()
