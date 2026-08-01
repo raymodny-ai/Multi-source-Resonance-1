@@ -12,6 +12,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { AlertBanner } from '@/components/AlertBanner';
 import { Button } from 'sparkdesign';
 import { CryptoMetricsCard } from '@/components/crypto/CryptoMetricsCard';
+import { CryptoSpotCard } from '@/components/crypto/CryptoSpotCard';
 import { CryptoHistoryChart } from '@/components/crypto/CryptoHistoryChart';
 import { useCryptoHistory, useCryptoLatest, useCryptoWSSync } from '@/lib/hooks/useCrypto';
 import { useQueryClient } from '@tanstack/react-query';
@@ -74,6 +75,10 @@ export function CryptoView() {
 
       <div className="mt-4">
         <CryptoMetricsCard latest={latest.data ?? null} loading={latest.isLoading && !latest.data} />
+      </div>
+
+      <div className="mt-4">
+        <CryptoSpotCard latest={latest.data ?? null} loading={latest.isLoading && !latest.data} />
       </div>
 
       <div className="mt-4">

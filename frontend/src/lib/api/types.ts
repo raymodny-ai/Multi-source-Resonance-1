@@ -297,6 +297,12 @@ export interface CryptoRow {
   oi_crash: boolean;
   leverage_cleanup: boolean;
   cryptoquant_elr: number | null;
+  // CoinGecko 市场现货 (backend crypto_fetcher 合并)
+  btc_price?: number | null;
+  btc_24h_change?: number | null;
+  btc_volume?: number | null;
+  eth_price?: number | null;
+  eth_24h_change?: number | null;
   [key: string]: unknown;
 }
 
