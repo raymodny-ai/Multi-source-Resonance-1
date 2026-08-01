@@ -36,20 +36,17 @@ function resolveWsUrl(): string {
   // 浏览器 API：window.location.protocol === 'http:' → ws:, https: → wss:
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.hostname || 'localhost';
-  // dev (5173) 或 prod (8525): 如果当前不在 8525 端口（即 dev server proxy 模式），走 same-origin /ws
+  // FIX-42 改进：只要页面当前端口 ≠ 后端端口(8525)，就视为存在同源 ``/ws`` 反代
+  // （vite dev 或 nginx 都配了 ``/ws`` → 8525）。这样无论 dev server 跑在 5173 / 5175 /
+  // 4173 还是任意自定义端口，WS 都走与 http 同源的反代路径，不硬编码端口列表。
   const port = window.location.port;
-  if (port === '5173' || port === '4173') {
-    // FIX-42: use the actual port the browser is currently on rather
-    // than hardcoding ``5173``. When the dev server is exposed on an
-    // alternate port (e.g. via ``vite --port=4173`` for a preview
-    // build) the WS connection still pointed at 5173, which silently
-    // hung.
-    const devPort = port || '5173';
-    return `${proto}//${host}:${devPort}/ws`;
+  const backendPort = import.meta.env.VITE_WS_PORT || '8525';
+  if (port && port !== backendPort) {
+    // 页面端口 ≠ 后端端口 → 走 same-origin /ws（推荐，与 http 一致，经 vite/nginx 反代）
+    return `${proto}//${host}:${port}/ws`;
   }
-  // standalone: 用环境变量端口
-  const wsPort = import.meta.env.VITE_WS_PORT || '8525';
-  return `${proto}//${host}:${wsPort}/ws`;
+  // standalone：直接打开后端 8525（无反代）时，用 VITE_WS_PORT 拼真实后端地址
+  return `${proto}//${host}:${backendPort}/ws`;
 }
 
 class WSClient {

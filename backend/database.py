@@ -537,6 +537,7 @@ SELECT
     aggregated_signal,
     zero_cross_signal,
     momentum_reversal_signal,
+    chartexchange_short_ratio,
     created_at,
     updated_at
 FROM dark_pool_metrics
