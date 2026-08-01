@@ -357,17 +357,10 @@ class BacktestEngine:
             return dict(WEIGHTS)
         except ImportError:
             return {
-                "net_gex_positive": 1.50,
-                "zero_gamma_above_spot": 0.50,
-                "call_wall_proximity": 0.50,
-                "term_structure_contango": 1.00,
-                "panic_premium_low": 0.50,
-                "leverage_cleanup": 1.00,
-                "funding_anomaly": 0.50,
-                "oi_crash": 0.50,
-                "dix_bullish": 1.00,
-                "short_ratio_extreme": 0.50,
-                "momentum_reversal": 0.50,
+                "gex": 2.5,
+                "vix": 1.5,
+                "crypto": 2.0,
+                "darkpool": 2.0,
             }
 
     def _empty_result(self, config: BacktestConfig) -> BacktestResult:

@@ -122,7 +122,8 @@ class TestVIXAnalyzer:
         }
         result = await analyze(data)
         assert result["score"] > 0
-        assert "term_structure_contango" in result["signals"]
+        # 2026-08-02 (方案 A): ratio 0.0625 → 'term_structure_normalizing'
+        assert "term_structure_normalizing" in result["signals"]
 
     @pytest.mark.asyncio
     async def test_analyze_empty_data(self):
@@ -145,7 +146,7 @@ class TestVIXAnalyzer:
             "panic_premium": 15.0,
         }
         result = await analyze(data)
-        assert "vix_extreme" in result["signals"]
+        assert "vix_extreme_contrarian" in result["signals"]
         assert 0 <= result["score"] <= 100
 
 
