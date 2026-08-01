@@ -39,7 +39,13 @@ function resolveWsUrl(): string {
   // dev (5173) 或 prod (8525): 如果当前不在 8525 端口（即 dev server proxy 模式），走 same-origin /ws
   const port = window.location.port;
   if (port === '5173' || port === '4173') {
-    return `${proto}//${host}:5173/ws`;
+    // FIX-42: use the actual port the browser is currently on rather
+    // than hardcoding ``5173``. When the dev server is exposed on an
+    // alternate port (e.g. via ``vite --port=4173`` for a preview
+    // build) the WS connection still pointed at 5173, which silently
+    // hung.
+    const devPort = port || '5173';
+    return `${proto}//${host}:${devPort}/ws`;
   }
   // standalone: 用环境变量端口
   const wsPort = import.meta.env.VITE_WS_PORT || '8525';
@@ -164,15 +170,23 @@ class WSClient {
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {
   const setWSState = useUIStore((s) => s.setWSState);
+  // FIX-51: lazy-initialise the WS client from inside ``useEffect``
+  // rather than during render. The previous version constructed
+  // ``new WSClient(...)`` during the render phase, which (a) ran the
+  // constructor twice under React StrictMode, (b) created a stale
+  // connection on HMR, and (c) technically violated the React rule
+  // against side effects in render.
   const clientRef = useRef<WSClient | null>(null);
-
-  if (typeof window !== 'undefined' && !clientRef.current) {
+  if (clientRef.current === null && typeof window !== 'undefined') {
     clientRef.current = new WSClient(resolveWsUrl());
   }
 
   useEffect(() => {
     const client = clientRef.current;
     if (!client) return;
+    // ``start()`` opens the underlying WebSocket. We've now ensured
+    // the client only exists once per provider mount; the effect
+    // simply attaches the listener and binds teardown.
     client.start();
     const handler = (ev: Event) => {
       const detail = (ev as CustomEvent<WSConnectionState>).detail;

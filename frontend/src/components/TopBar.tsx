@@ -42,6 +42,9 @@ export function TopBar({ onMobileMenuToggle, showMobileMenu = false }: TopBarPro
   const style = useUIStore((s) => s.style);
   const setTheme = useUIStore((s) => s.setTheme);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+  // FIX-43: read the ``sidebarCollapsed`` flag so ``aria-expanded``
+  // reflects reality, not the always-truthy bare attribute.
+  const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const lastUpdateAt = useUIStore((s) => s.lastUpdateAt);
 
   const { data: dashboard } = useDashboard();
@@ -81,7 +84,11 @@ export function TopBar({ onMobileMenuToggle, showMobileMenu = false }: TopBarPro
           onClick={toggleSidebar}
           className="p-1.5 rounded hover:bg-[var(--color-bg-elevated)] focus-visible:outline-2 focus-visible:outline-[var(--color-primary)] hidden md:inline-flex"
           aria-label="切换侧边栏"
-          aria-expanded
+          // FIX-43: ``aria-expanded`` requires a string value ("true" /
+          // "false"). The bare ``aria-expanded`` attribute evaluates to
+          // ``true`` always in HTML, which screen readers always read
+          // as "expanded" — even when the sidebar is collapsed.
+          aria-expanded={!sidebarCollapsed}
         >
           <span className="text-base">≡</span>
         </button>

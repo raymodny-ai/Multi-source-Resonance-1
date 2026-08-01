@@ -21,7 +21,12 @@ export function DashboardView() {
   useDashboardWSSync();
   const { data, isLoading, error, dataUpdatedAt } = useDashboard();
 
-  const mockSources = data?.mock_sources ?? [];
+  // FIX-45: the previous version created a fresh ``[]`` on every render
+  // when ``mock_sources`` was missing, which broke the identity-stable
+  // contract downstream (memoised children re-rendered unnecessarly).
+  // The frozen empty array is safe to compare by reference.
+  const EMPTY_MOCK_SOURCES: readonly string[] = Object.freeze([]);
+  const mockSources = data?.mock_sources ?? EMPTY_MOCK_SOURCES;
   const alertLevel = data?.alert_level ?? null;
 
   const banner = useMemo(() => {

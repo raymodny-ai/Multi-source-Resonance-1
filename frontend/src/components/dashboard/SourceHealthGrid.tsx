@@ -1,11 +1,10 @@
 /**
  * 数据源健康网格
- * - 后端 /api/system/source-status 返回 list of SourceStatus（不含 mock_reason 默认字段）
+ * - 后端 /api/system/source-status 返回 list of SourceStatus
  * - 这里收敛成统一类型 SourceStatus
  * - 颜色：绿=在线/橙=降级/红=离线/灰=未知
  */
-import { useQuery } from '@tanstack/react-query';
-import { getSourceStatusList } from '@/lib/api/system';
+import { useSourceStatus as useSystemSourceStatus } from '@/lib/hooks/useSystem';
 import { sourceLabel, sourceTone, type SourceStatusTone } from '@/lib/utils/format';
 import { cn } from '@/lib/utils/cn';
 
@@ -16,17 +15,15 @@ const TONE_DOT: Record<SourceStatusTone, string> = {
   neutral: 'bg-[var(--color-text-muted)]',
 };
 
-export function useSourceStatus() {
-  return useQuery({
-    queryKey: ['system', 'source-status'],
-    queryFn: getSourceStatusList,
-    refetchInterval: 30_000,
-    staleTime: 15_000,
-  });
-}
+// FIX-48: re-export the centralised hook from ``useSystem`` so any
+// other view (e.g. /system, /settings) that imports ``useSourceStatus
+// from '@/components/dashboard/SourceHealthGrid'`` ends up using the
+// shared cache entry — no duplicate subscription, no two parallel
+// refetch timers racing.
+export const useSourceStatus = useSystemSourceStatus;
 
 export function SourceHealthGrid() {
-  const { data, isLoading, error } = useSourceStatus();
+  const { data, isLoading, error } = useSystemSourceStatus();
   const sources = data ?? [];
 
   if (error && sources.length === 0) {

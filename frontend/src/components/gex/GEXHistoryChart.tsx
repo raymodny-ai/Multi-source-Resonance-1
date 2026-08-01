@@ -123,6 +123,10 @@ export function GEXHistoryChart({ history, longHistory, height = 240, loading }:
 /** 纯线条占位（用作 loading + 错误态） */
 export function GEXHistoryChartSkeleton({ height = 240 }: { height?: number }) {
   return (
+    // FIX-44: respect the ``height`` prop everywhere — including the
+    // inner placeholder bar. The previous hard-coded ``h-[180px]``
+    // made the skeleton shorter than the real chart on any caller
+    // that asked for >180px.
     <div
       className="msr-card bg-[var(--color-bg-elevated)] animate-pulse"
       style={{ height }}
@@ -130,7 +134,10 @@ export function GEXHistoryChartSkeleton({ height = 240 }: { height?: number }) {
       aria-label="加载 GEX 历史走势"
     >
       <div className="h-3 w-24 bg-[var(--color-border)] rounded mb-2 ml-2 mt-2" />
-      <div className="h-[180px] m-2 bg-[var(--color-bg-base)] rounded" />
+      <div
+        className="m-2 bg-[var(--color-bg-base)] rounded"
+        style={{ height: Math.max(0, height - 56) }}
+      />
     </div>
   );
 }

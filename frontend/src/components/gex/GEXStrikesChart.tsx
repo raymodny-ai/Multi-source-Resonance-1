@@ -23,9 +23,16 @@ export function GEXStrikesChart({ strikes, spot, callWall, putWall, height = 320
   const option = useMemo(() => {
     const sorted = [...(strikes ?? [])].sort((a, b) => a.strike - b.strike);
     const labels = sorted.map((s) => s.strike);
-    const callData = sorted.map((s) => (typeof s.call_gex === 'number' ? s.call_gex : null) ?? 0);
+    // FIX-50: normalise null ↦ null for BOTH call and put (the previous
+    // version coerced call_gex nulls to ``0`` but kept put_gex as ``null``,
+    // so a row where one side had no data drew a zero-height call bar
+    // and a gap in the put bar — visually misleading). Now both sides
+    // get ``null`` and echarts renders a gap for missing data.
+    const callData = sorted.map((s) =>
+      typeof s.call_gex === 'number' ? s.call_gex : null,
+    );
     const putData = sorted.map((s) =>
-      typeof s.put_gex === 'number' ? -Math.abs(s.put_gex) : null
+      typeof s.put_gex === 'number' ? -Math.abs(s.put_gex) : null,
     );
 
     const markPoints: Array<Record<string, unknown>> = [];
@@ -46,11 +53,15 @@ export function GEXStrikesChart({ strikes, spot, callWall, putWall, height = 320
       });
     }
     if (callWall != null) {
+      // FIX-41: the x-axis is 'category', so the markPoint coord must
+      // be the category index, not the raw strike value. The previous
+      // ``coord: [callWall, y]`` placed the marker somewhere off-axis
+      // whenever the strike was slightly off-grid (e.g. 582.5 vs 582).
       const x = labels.indexOf(callWall);
       const y = x >= 0 ? callData[x] : null;
       markPoints.push({
         name: 'CallWall',
-        coord: [callWall, y],
+        coord: [x >= 0 ? x : callWall, y],
         symbol: 'triangle',
         symbolSize: 12,
         itemStyle: { color: '#22c55e' },
@@ -63,11 +74,12 @@ export function GEXStrikesChart({ strikes, spot, callWall, putWall, height = 320
       });
     }
     if (putWall != null) {
+      // FIX-41: same correction for the put wall.
       const x = labels.indexOf(putWall);
       const y = x >= 0 ? putData[x] : null;
       markPoints.push({
         name: 'PutWall',
-        coord: [putWall, y],
+        coord: [x >= 0 ? x : putWall, y],
         symbol: 'triangle',
         symbolRotate: 180,
         symbolSize: 12,

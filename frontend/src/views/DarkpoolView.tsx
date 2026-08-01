@@ -26,6 +26,17 @@ import { useUIStore } from '@/lib/stores/ui';
 import { fmtNum, fmtTime } from '@/lib/utils/format';
 import { cn } from '@/lib/utils/cn';
 
+// FIX-49: helper that joins a date with a time portion only when the
+// input lacks one. ``r.date`` is a SQL DATE (YYYY-MM-DD), but the API
+// may eventually return full timestamps in the same field — appending
+// ``T00:00:00`` twice produces "2026-07-31T00:00:00T00:00:00" which
+// ``new Date(...)`` parses as Invalid Date.
+function joinDateTime(date: string): string {
+  if (!date) return date;
+  if (/T/.test(date)) return date;
+  return `${date}T00:00:00`;
+}
+
 const DAY_OPTIONS = [
   { value: '30', label: '最近 30 天' },
   { value: '60', label: '最近 60 天' },
@@ -122,7 +133,7 @@ export function DarkpoolView() {
                       r.aggregated_signal && 'bg-[var(--color-warning)]/8',
                     )}
                   >
-                    <span className="font-mono text-[var(--color-text-muted)]">{fmtTime(r.date + 'T00:00:00')}</span>
+                    <span className="font-mono text-[var(--color-text-muted)]">{fmtTime(joinDateTime(r.date))}</span>
                     <span className="font-mono text-right">{fmtNum(r.dix_value, 3)}</span>
                     <span className={cn('font-mono text-right', (r.v_net ?? 0) > 0 ? 'text-[var(--color-success)]' : (r.v_net ?? 0) < 0 ? 'text-[var(--color-danger)]' : '')}>
                       {fmtNum(r.v_net, 2)}

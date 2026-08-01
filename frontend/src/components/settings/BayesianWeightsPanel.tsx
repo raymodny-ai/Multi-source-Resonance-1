@@ -16,11 +16,17 @@ const DIM_COLORS: Record<string, string> = {
   darkpool: '#ef4444',
 };
 
+// FIX-47: lift ``dims`` out of the render so the array identity is
+// stable across renders. The previous ``const dims = [...]`` lived
+// inside the function body, so the ``useMemo([data, dims])`` dependency
+// list invalidated on every render even when nothing changed.
+const DIMS: readonly string[] = Object.freeze(['gex', 'vix', 'crypto', 'darkpool']);
+
 export function BayesianWeightsPanel() {
   const { data, isLoading, error } = useWeights();
   const reset = useResetWeights();
 
-  const dims = ['gex', 'vix', 'crypto', 'darkpool'];
+  const dims = DIMS;
 
   const chartOption = useMemoReact(() => {
     if (!data) return {};

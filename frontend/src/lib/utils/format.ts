@@ -14,10 +14,22 @@ export function fmtInt(value: number | null | undefined, fallback = '—'): stri
   return Math.round(value).toLocaleString('en-US');
 }
 
-/** 百分比 */
+/**
+ * FIX-46: ``fmtPct`` expects a RATIO (e.g. ``0.42`` → "42.00%"), not
+ * a percentage (e.g. ``42`` → "4200.00%"). The original ambiguous
+ * signature caused repeated integration bugs (VIX contango displayed
+ * as "4200%"). We keep the function but rename its intent and add a
+ * separate ``fmtPercent`` for callers that already have a 0-100 value.
+ */
 export function fmtPct(value: number | null | undefined, digits = 2, fallback = '—'): string {
   if (value === null || value === undefined || Number.isNaN(value)) return fallback;
   return `${(value * 100).toFixed(digits)}%`;
+}
+
+/** Same as ``fmtPct`` but for values already on the 0-100 scale. */
+export function fmtPercent(value: number | null | undefined, digits = 2, fallback = '—'): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return fallback;
+  return `${value.toFixed(digits)}%`;
 }
 
 /** ISO 时间戳 → 本地化短串 */

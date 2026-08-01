@@ -376,6 +376,11 @@ CREATE TABLE IF NOT EXISTS signal_alerts (
 );
 CREATE INDEX IF NOT EXISTS idx_signal_alerts_level
     ON signal_alerts (alert_level, trigger_time DESC);
+-- FIX-37: Bayesian weight update and outcome tracker both scan this
+-- table ordered by outcome status (NULL → unchecked, otherwise
+-- pending/replay review). Without an index each query is a full scan.
+CREATE INDEX IF NOT EXISTS idx_signal_alerts_outcome
+    ON signal_alerts (outcome, outcome_checked_at DESC);
 
 -- Data validation audit log (14 columns)
 CREATE TABLE IF NOT EXISTS validation_audit_log (
