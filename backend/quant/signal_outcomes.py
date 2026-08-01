@@ -17,7 +17,7 @@ import aiosqlite
 logger = logging.getLogger(__name__)
 
 # Default forward-looking window (calendar days) to evaluate outcome
-FORWARD_DAYS = 5
+FORWARD_DAYS = 3  # IMPL-BAYESIAN-001 #5: 5 -> 3 to speed cold start (3d SPX return still statistically meaningful)
 
 
 class SignalOutcomeTracker:
@@ -87,10 +87,14 @@ class SignalOutcomeTracker:
             close_map: dict[str, float] = await asyncio.to_thread(_fetch_spx)
             if not close_map:
                 logger.warning("yfinance returned no SPX data for outcome check")
-                return []
+                return await self._check_consistency_fallback(db)
         except Exception as e:
             logger.error(f"Failed to fetch SPX history for outcomes: {e}")
-            return []
+            # Offline degrade (IMPL-BAYESIAN-001 #3): no network -> weak,
+            # audit-only consistency evaluation. Note: these rows are marked
+            # outcome_method='consistency_fallback' and are EXCLUDED from
+            # Bayesian weight learning (see pipeline/scheduler mock filter).
+            return await self._check_consistency_fallback(db)
 
         results = []
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -117,7 +121,8 @@ class SignalOutcomeTracker:
 
             await db.execute(
                 """UPDATE signal_alerts
-                   SET outcome = ?, forward_return = ?, outcome_checked_at = ?
+                   SET outcome = ?, forward_return = ?, outcome_checked_at = ?,
+                       outcome_method = 'spx_forward'
                    WHERE id = ?""",
                 (outcome, round(fwd_return, 6), now_iso, sig_id),
             )
@@ -133,6 +138,83 @@ class SignalOutcomeTracker:
             await db.commit()
             logger.info(f"Evaluated {len(results)} signal outcomes")
 
+        return results
+
+    # ── Offline consistency fallback (IMPL-BAYESIAN-001 #3) ──────────────────
+
+    async def _check_consistency_fallback(self, db: aiosqlite.Connection) -> list:
+        """Weak, audit-only outcome evaluation used when SPX is unavailable.
+
+        Principle guard (Owner 2026-08-02): never fabricate a real ``outcome``
+        for the Bayesian learning path — a guess is not a measured forward
+        return. So this fallback does NOT write ``outcome``/``forward_return``
+        into the learning pipeline. Instead it tags aging, unconclusively-
+        evaluated signals with ``outcome_method='consistency_fallback'`` and
+        records a ``forward_return = 0.0`` placeholder so the row is visible in
+        the observability layer as 'offline-evaluated' but is excluded from
+        weight updates (the Bayesian queries filter by
+        ``outcome_method != 'consistency_fallback'``).
+
+        Criteria (from IMPL-BAYESIAN-001):
+          - 4 dims with >=3 scores > 50  -> 'consistent' (strong multi-dim resonance)
+          - 4 dims with <=1 score > 50   -> 'inconsistent' (weak/no resonance)
+          - otherwise                     -> skipped (wait for real data)
+        """
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=self.forward_days)
+        ).isoformat()
+        cursor = await db.execute("""
+            SELECT id, trigger_time, gex_score, vix_score, crypto_score, darkpool_score
+            FROM signal_alerts
+            WHERE outcome IS NULL
+              AND outcome_method != 'consistency_fallback'
+              AND trigger_time <= ?
+              AND (mock_count = 0 OR mock_count IS NULL)
+            ORDER BY trigger_time ASC LIMIT 20
+        """, (cutoff,))
+        rows = await cursor.fetchall()
+
+        results = []
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for r in rows:
+            scores = [
+                r["gex_score"] or 0, r["vix_score"] or 0,
+                r["crypto_score"] or 0, r["darkpool_score"] or 0,
+            ]
+            high = sum(1 for s in scores if s > 50)
+            if high >= 3:
+                marker = "consistent"
+            elif high <= 1:
+                marker = "inconsistent"
+            else:
+                continue  # ambiguous — wait for real SPX data
+
+            # Audit-only: mark method + zero forward_return placeholder. outcome
+            # stays NULL (never feeds Bayesian learning as a fake profit/loss).
+            await db.execute(
+                """
+                UPDATE signal_alerts
+                SET outcome_method = 'consistency_fallback',
+                    forward_return = 0.0,
+                    outcome_checked_at = ?
+                WHERE id = ? AND outcome IS NULL
+                """,
+                (now_iso, r["id"]),
+            )
+            results.append({
+                "id": r["id"],
+                "trigger_time": r["trigger_time"],
+                "marker": marker,
+                "method": "consistency_fallback",
+                "forward_return": 0.0,
+            })
+
+        if results:
+            await db.commit()
+            logger.info(
+                f"Consistency fallback tagged {len(results)} signals "
+                f"(strong-resonance/weak, audit-only, excluded from learning)"
+            )
         return results
 
     # ── False positive rate ───────────────────────────────────────────────────

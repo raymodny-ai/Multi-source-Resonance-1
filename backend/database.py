@@ -428,6 +428,7 @@ CREATE TABLE IF NOT EXISTS signal_alerts (
     outcome                 TEXT DEFAULT NULL,
     forward_return          REAL DEFAULT NULL,
     outcome_checked_at      TEXT DEFAULT NULL,
+    outcome_method          TEXT DEFAULT 'spx_forward',
     mock_sources            TEXT DEFAULT NULL,
     mock_count              INTEGER DEFAULT 0
 );
@@ -687,6 +688,9 @@ async def init_db() -> None:
             "ALTER TABLE signal_alerts ADD COLUMN outcome TEXT DEFAULT NULL",
             "ALTER TABLE signal_alerts ADD COLUMN forward_return REAL DEFAULT NULL",
             "ALTER TABLE signal_alerts ADD COLUMN outcome_checked_at TEXT DEFAULT NULL",
+            # Outcome evaluation method marker (IMPL-BAYESIAN-001 #3/3):
+            # 'spx_forward' (real, default) vs 'consistency_fallback' (offline weak)
+            "ALTER TABLE signal_alerts ADD COLUMN outcome_method TEXT DEFAULT 'spx_forward'",
             # CoinGecko enrichment columns
             "ALTER TABLE crypto_derivatives ADD COLUMN btc_price REAL",
             "ALTER TABLE crypto_derivatives ADD COLUMN btc_24h_change REAL",

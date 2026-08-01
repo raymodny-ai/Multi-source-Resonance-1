@@ -181,3 +181,61 @@ async def signal_performance(
         "lookback_days": days,
         **perf,
     }
+
+
+@router.get("/bayesian-weights")
+async def bayesian_weights_status():
+    """Current Bayesian weight state, learning progress and posterior summary.
+
+    Observability for the adaptive-weight system (IMPL-BAYESIAN-001 #4).
+    Returned fields:
+      - current_weights / default_weights: adapted vs baseline per dimension
+      - weight_delta: current - default per dimension
+      - is_adapted: whether any update has happened
+      - update_count / last_update: learning progress
+      - posterior_summary: per-dimension posterior mean & credible-ish bounds
+      - persisted_state: the posteriors currently stored in system_config
+        (proves weights survive restart)
+    """
+    from backend.quant.scoring import (
+        _get_adapter,
+        get_current_weights,
+        DEFAULT_WEIGHTS,
+    )
+
+    adapter = _get_adapter()
+    stats = adapter.get_update_stats()
+    current = get_current_weights()
+
+    # Posterior summary (per-dimension Beta posterior mean and 95% bounds).
+    summary = adapter.get_posterior_summary()
+
+    # Fetch the persisted state from system_config to display restart-survival.
+    persisted_state = None
+    try:
+        import json as _json
+        async with get_db() as db:
+            cursor = await db.execute(
+                "SELECT value FROM system_config WHERE key = 'bayesian_weights_state'"
+            )
+            row = await cursor.fetchone()
+        if row:
+            persisted_state = _json.loads(row[0])
+    except Exception:
+        persisted_state = None
+
+    return {
+        "current_weights": current,
+        "default_weights": dict(DEFAULT_WEIGHTS),
+        "is_adapted": stats["update_count"] > 0,
+        "update_count": stats["update_count"],
+        "last_update": stats.get("last_update"),
+        "decay_factor": stats.get("decay_factor"),
+        "min_outcomes": stats.get("min_outcomes"),
+        "posterior_summary": summary,
+        "weight_delta": {
+            dim: round(current[dim] - DEFAULT_WEIGHTS[dim], 4)
+            for dim in current
+        },
+        "persisted_state": persisted_state,
+    }

@@ -452,6 +452,7 @@ class Pipeline:
                     FROM signal_alerts
                     WHERE outcome IS NOT NULL
                       AND (mock_count = 0 OR mock_count IS NULL)
+                      AND (outcome_method IS NULL OR outcome_method != 'consistency_fallback')
                     ORDER BY outcome_checked_at DESC
                     LIMIT 1
                 """)

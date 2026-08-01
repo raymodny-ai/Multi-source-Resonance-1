@@ -134,6 +134,7 @@ async def job_update_bayesian_weights():
                 FROM signal_alerts
                 WHERE outcome IS NOT NULL
                   AND (mock_count = 0 OR mock_count IS NULL)
+                  AND (outcome_method IS NULL OR outcome_method != 'consistency_fallback')
                   AND outcome_checked_at >= datetime('now', '-90 days')
                 ORDER BY outcome_checked_at ASC
             """)
