@@ -168,8 +168,17 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "X-CSRF-Token",
+    ],
+    expose_headers=["X-Request-ID", "X-Response-Time"],
+    max_age=600,
 )
 
 # ── Global exception handlers ─────────────────────────────────────────────────
@@ -275,6 +284,9 @@ async def start_collection(request: Request):
     POST — protected by the global JWT write middleware (was GET, which
     bypassed auth and allowed CSRF-style triggering). Frontend does not call
     this; it is reserved for operator/CLI use with a valid access token.
+
+    FIX-08: changed from GET to POST so the JWT write middleware is the
+    correct gate, and so accidental browser navigation cannot trigger it.
     """
     pipeline: Pipeline = request.app.state.pipeline
     if pipeline.is_running:
@@ -288,6 +300,7 @@ async def stop_collection(request: Request):
     """Stop the periodic data collection pipeline (reserved endpoint).
 
     POST — protected by the global JWT write middleware (was GET).
+    FIX-08: same reasoning as start-collect.
     """
     pipeline: Pipeline = request.app.state.pipeline
     if not pipeline.is_running:

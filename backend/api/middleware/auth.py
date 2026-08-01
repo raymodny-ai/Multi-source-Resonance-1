@@ -63,7 +63,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         "jti": str(uuid.uuid4()),
         "type": "access",
     })
-    return jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    # FIX-05: route through the new ``effective_jwt_secret`` accessor so a
+    # missing env var does not fall back to a hardcoded placeholder.
+    return jwt.encode(to_encode, settings.effective_jwt_secret, algorithm=settings.jwt_algorithm)
 
 
 def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -86,7 +88,8 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
         "jti": str(uuid.uuid4()),
         "type": "refresh",
     })
-    return jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    # FIX-05: same hardening as create_access_token.
+    return jwt.encode(to_encode, settings.effective_jwt_secret, algorithm=settings.jwt_algorithm)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,7 +117,7 @@ def verify_token(token: str, expected_type: str = "access") -> dict:
     try:
         payload = jwt.decode(
             token,
-            settings.jwt_secret,
+            settings.effective_jwt_secret,
             algorithms=[settings.jwt_algorithm],
         )
         # Check token type
@@ -181,27 +184,70 @@ _PUBLIC_PATHS = {
 # Path prefixes that are public
 _PUBLIC_PREFIXES = ("/docs", "/redoc", "/openapi.json")
 
+# FIX-09: sensitive GET endpoints that must NOT be public. These expose
+# raw pipeline metrics, config secrets, or admin-only state — they were
+# previously reachable without any token, allowing unauthenticated
+# scraping of internal state. Each entry is an exact path match.
+_SENSITIVE_GET_PATHS: set[str] = {
+    "/api/system/pipeline-status",
+    "/api/system/source-status",
+    "/api/system/logs",
+    "/api/config",
+    "/api/config/",
+    "/api/metrics/pipeline",
+    "/api/metrics/eventbus",
+    "/api/signals/recent-alerts",
+    "/api/analysis/recent",
+    "/api/options-greeks/positions",
+}
+
+
+def _is_sensitive_get(request: Request) -> bool:
+    """FIX-09 helper: identify sensitive GET endpoints that require auth.
+
+    A GET is considered sensitive when its path is in the explicit list, or
+    matches a known admin-only prefix. We deliberately keep the public read
+    surface (dashboard, history, gex-curve, ...) accessible without a token
+    so existing frontends keep working.
+    """
+    path = request.url.path
+    if path in _SENSITIVE_GET_PATHS:
+        return True
+    sensitive_prefixes = (
+        "/api/admin",
+        "/api/internal",
+        "/api/secrets",
+    )
+    return any(path.startswith(p) for p in sensitive_prefixes)
+
 
 async def jwt_write_middleware(request: Request, call_next):
-    """ASGI middleware that requires JWT for all write operations (POST/PUT/DELETE).
+    """ASGI middleware enforcing JWT for write operations AND sensitive GETs.
 
-    GET requests are allowed through. Write requests to public paths are also allowed.
+    FIX-08: keeps POST/PUT/DELETE protected.
+    FIX-09: also protects a hand-curated list of admin/sensitive GET endpoints
+    that previously returned pipeline internals without any authentication.
     """
-    # Allow all GET / HEAD / OPTIONS requests through
-    if request.method in ("GET", "HEAD", "OPTIONS"):
+    # Allow all GET / HEAD / OPTIONS requests through, unless this GET is
+    # on the sensitive list (FIX-09).
+    if request.method == "GET":
+        if not _is_sensitive_get(request):
+            return await call_next(request)
+    elif request.method in ("HEAD", "OPTIONS"):
         return await call_next(request)
 
-    # Check if path is public
+    # Check if path is public (applies to writes only; sensitive GETs above
+    # already passed the gate so we never hit this for them).
     path = request.url.path
     if path in _PUBLIC_PATHS or any(path.startswith(p) for p in _PUBLIC_PREFIXES):
         return await call_next(request)
 
-    # Require valid access token for write operations
+    # Require valid access token for write operations and sensitive GETs
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return JSONResponse(
             status_code=401,
-            content={"detail": "Authentication required for write operations"},
+            content={"detail": "Authentication required"},
         )
 
     token = auth_header[7:]

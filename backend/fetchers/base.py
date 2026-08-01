@@ -119,6 +119,20 @@ class BaseFetcher(ABC):
         Returns:
             dict with fetched or mock data, always includes '_meta' key.
         """
+        # FIX-02: air-gapped mode — every source short-circuits to mock.
+        # Lets operators run the system offline without a single outbound
+        # connection (e.g. behind a hard firewall that blocks the proxy).
+        if not self.config.network_enabled:
+            self.logger.info(
+                f"[{self.source_name}] Network disabled — returning mock data"
+            )
+            return self._wrap_result(
+                self._mock_data(),
+                is_mock=True,
+                mock_reason="network_disabled",
+                retry_count=0,
+            )
+
         # If mock mode, return mock data immediately
         if self._is_mock_mode():
             self.logger.info(f"[{self.source_name}] API key absent — returning mock data")
@@ -197,14 +211,46 @@ class BaseFetcher(ABC):
 
     # ── HTTP client helper ────────────────────────────────────────────────────
 
+    def _resolve_proxy(self) -> Optional[str]:
+        """FIX-02: resolve the effective proxy URL for this fetcher.
+
+        Priority:
+        1. Per-source override (``proxy_overrides[<source_name>]``).
+        2. ``https_proxy`` env / config (preferred for TLS endpoints).
+        3. ``http_proxy`` env / config.
+        4. ``None`` — direct connection.
+        """
+        overrides = self.config.proxy_overrides_map
+        name = self.source_name.lower()
+        if name in overrides and overrides[name]:
+            return overrides[name]
+        if self.config.https_proxy:
+            return self.config.https_proxy
+        if self.config.http_proxy:
+            return self.config.http_proxy
+        return None
+
     async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create a shared async HTTP client."""
+        """Get or create a shared async HTTP client.
+
+        FIX-02: wires in the configured proxy so fetchers can reach external
+        hosts when the runtime sits behind a corporate proxy / firewall.
+        When ``network_enabled`` is False, every fetch is short-circuited
+        to a mock fallback.
+        """
         if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(self.timeout),
-                follow_redirects=True,
-                headers={"User-Agent": "MultiSourceResonance/3.1"},
-            )
+            proxy_url = self._resolve_proxy()
+            # httpx accepts the ``proxy=`` kwarg; no_proxy is expressed via
+            # mount patterns — we keep it simple and rely on no_proxy in
+            # the proxy URL itself when operators need split routing.
+            client_kwargs: dict[str, Any] = {
+                "timeout": httpx.Timeout(self.config.network_timeout_seconds),
+                "follow_redirects": True,
+                "headers": {"User-Agent": "MultiSourceResonance/3.1"},
+            }
+            if proxy_url:
+                client_kwargs["proxy"] = proxy_url
+            self._http_client = httpx.AsyncClient(**client_kwargs)
         return self._http_client
 
     async def _http_get(

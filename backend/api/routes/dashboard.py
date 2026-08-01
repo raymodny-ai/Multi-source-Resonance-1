@@ -3,6 +3,7 @@ Dashboard BFF (Backend-For-Frontend) aggregation routes.
 Provides single-call endpoints that aggregate data from multiple dimensions.
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -63,7 +64,11 @@ async def dashboard_view():
         signal_row = await signal_cursor.fetchone()
         signal_data = dict(signal_row) if signal_row else None
 
-    # Aggregate the mock-source set across dimensions for the UI to surface.
+    # FIX-01: aggregate mock-source set across dimensions from the DB-persisted
+    # `is_mock` column (data_writer now propagates _meta.is_mock → DB column).
+    # Previously this loop read `payload.get("_meta")` which was structurally
+    # impossible — SQLite rows have no `_meta` key, so the UI never learned
+    # which dimensions were mocked.
     mock_sources: set[str] = set()
     for source_name, payload in (
         ("gex", gex_data),
@@ -72,9 +77,30 @@ async def dashboard_view():
         ("darkpool", darkpool_data),
     ):
         if payload and isinstance(payload, dict):
-            meta = payload.get("_meta") or {}
-            if meta.get("is_mock"):
+            if payload.get("is_mock"):
                 mock_sources.add(source_name)
+
+    # Signal-level mock metadata (FIX-01: from signal_alerts.mock_sources / mock_count)
+    signal_mock_sources: list[str] = []
+    signal_mock_count: int = 0
+    if signal_data and isinstance(signal_data, dict):
+        raw_mock_sources = signal_data.get("mock_sources")
+        if raw_mock_sources:
+            try:
+                # Stored as JSON list in the DB
+                parsed = json.loads(raw_mock_sources) if isinstance(raw_mock_sources, str) else raw_mock_sources
+                if isinstance(parsed, list):
+                    signal_mock_sources = [str(x) for x in parsed]
+            except (ValueError, TypeError):
+                signal_mock_sources = []
+        try:
+            signal_mock_count = int(signal_data.get("mock_count") or 0)
+        except (TypeError, ValueError):
+            signal_mock_count = 0
+
+    # Reconcile: union of dimension-level and signal-level mock sources
+    combined_mock_sources = sorted(set(mock_sources) | set(signal_mock_sources))
+    combined_mock_count = max(len(mock_sources), signal_mock_count, len(signal_mock_sources))
 
     return {
         "fetched_at": datetime.now(timezone.utc).isoformat(),
@@ -84,7 +110,8 @@ async def dashboard_view():
         "darkpool": darkpool_data,
         "signal": signal_data,
         "_meta": {
-            "mock_sources": sorted(mock_sources),
+            "mock_sources": combined_mock_sources,
+            "mock_count": combined_mock_count,
         },
     }
 

@@ -132,7 +132,9 @@ CREATE TABLE IF NOT EXISTS gex_snapshots (
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     quality_score   REAL,
     data_lag_seconds INTEGER,
-    oi_coverage_pct REAL
+    oi_coverage_pct REAL,
+    is_mock         BOOLEAN DEFAULT 0,
+    mock_reason     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_gex_snapshots_sym_ts
     ON gex_snapshots (symbol, timestamp DESC);
@@ -199,7 +201,9 @@ CREATE TABLE IF NOT EXISTS vix_analysis (
     term_structure_ratio  REAL,
     term_structure_state  TEXT,
     panic_premium         REAL,
-    created_at            DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_mock               BOOLEAN DEFAULT 0,
+    mock_reason           TEXT
 );
 
 -- VIX term structure daily history (date PK, from FRED VIXCLS + VXVCLS)
@@ -251,7 +255,9 @@ CREATE TABLE IF NOT EXISTS dark_pool_metrics (
     zero_cross_signal          TEXT,
     momentum_reversal_signal   TEXT,
     created_at                 DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at                 DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at                 DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_mock                    BOOLEAN DEFAULT 0,
+    mock_reason                TEXT
 );
 
 -- Options chain + Greeks (computed via py_vollib Black-Scholes, fed by yfinance)
@@ -307,7 +313,14 @@ CREATE TABLE IF NOT EXISTS crypto_derivatives (
     funding_anomaly    BOOLEAN,
     oi_crash           BOOLEAN,
     leverage_cleanup   BOOLEAN,
-    created_at         DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at         DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_mock            BOOLEAN DEFAULT 0,
+    mock_reason        TEXT,
+    btc_price          REAL,
+    btc_24h_change     REAL,
+    btc_volume         REAL,
+    eth_price          REAL,
+    eth_24h_change     REAL
 );
 
 -- ============================================================
@@ -330,7 +343,9 @@ CREATE TABLE IF NOT EXISTS signal_alerts (
     created_at              DATETIME DEFAULT CURRENT_TIMESTAMP,
     outcome                 TEXT DEFAULT NULL,
     forward_return          REAL DEFAULT NULL,
-    outcome_checked_at      TEXT DEFAULT NULL
+    outcome_checked_at      TEXT DEFAULT NULL,
+    mock_sources            TEXT DEFAULT NULL,
+    mock_count              INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_signal_alerts_level
     ON signal_alerts (alert_level, trigger_time DESC);
@@ -564,12 +579,24 @@ async def init_db() -> None:
         # Seed default config
         await conn.executescript(SEED_CONFIG)
 
-        # Add outcome tracking columns to signal_alerts (idempotent ALTER TABLE)
+        # Idempotent migrations for mock tracking columns
         alter_statements = [
+            # Mock tracking columns (FIX-01)
+            "ALTER TABLE gex_snapshots ADD COLUMN is_mock BOOLEAN DEFAULT 0",
+            "ALTER TABLE gex_snapshots ADD COLUMN mock_reason TEXT",
+            "ALTER TABLE vix_analysis ADD COLUMN is_mock BOOLEAN DEFAULT 0",
+            "ALTER TABLE vix_analysis ADD COLUMN mock_reason TEXT",
+            "ALTER TABLE crypto_derivatives ADD COLUMN is_mock BOOLEAN DEFAULT 0",
+            "ALTER TABLE crypto_derivatives ADD COLUMN mock_reason TEXT",
+            "ALTER TABLE dark_pool_metrics ADD COLUMN is_mock BOOLEAN DEFAULT 0",
+            "ALTER TABLE dark_pool_metrics ADD COLUMN mock_reason TEXT",
+            "ALTER TABLE signal_alerts ADD COLUMN mock_sources TEXT DEFAULT NULL",
+            "ALTER TABLE signal_alerts ADD COLUMN mock_count INTEGER DEFAULT 0",
+            # Outcome tracking columns (legacy)
             "ALTER TABLE signal_alerts ADD COLUMN outcome TEXT DEFAULT NULL",
             "ALTER TABLE signal_alerts ADD COLUMN forward_return REAL DEFAULT NULL",
             "ALTER TABLE signal_alerts ADD COLUMN outcome_checked_at TEXT DEFAULT NULL",
-            # CoinGecko enrichment columns (bumped 2026-08-01)
+            # CoinGecko enrichment columns
             "ALTER TABLE crypto_derivatives ADD COLUMN btc_price REAL",
             "ALTER TABLE crypto_derivatives ADD COLUMN btc_24h_change REAL",
             "ALTER TABLE crypto_derivatives ADD COLUMN btc_volume REAL",

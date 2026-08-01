@@ -32,7 +32,9 @@ class DataWriter:
         """Write collected fetcher data to the appropriate domain tables.
 
         Args:
-            results: Mapping of source_name -> fetched data dict.
+            results: Mapping of source_name -> fetched data dict. Each dict
+                may include ``_meta`` with ``is_mock`` and ``mock_reason``
+                keys (FIX-01: mock full-chain tracking).
 
         Returns:
             Dict mapping source_name -> {"count": int, "error": Optional[str]}.
@@ -43,9 +45,19 @@ class DataWriter:
         async with get_db() as conn:
             for source, data in results.items():
                 try:
-                    count = await self._write_source_data(conn, source, data, now)
+                    # FIX-01: extract mock markers from _meta so they persist to DB
+                    meta = (data or {}).get("_meta") or {}
+                    is_mock = bool(meta.get("is_mock", False))
+                    mock_reason = meta.get("mock_reason")
+                    count = await self._write_source_data(
+                        conn, source, data, now,
+                        is_mock=is_mock, mock_reason=mock_reason,
+                    )
                     written[source] = {"count": count, "error": None}
-                    logger.debug(f"Written {count} row(s) for source '{source}'")
+                    logger.debug(
+                        f"Written {count} row(s) for source '{source}'"
+                        f"{' [MOCK]' if is_mock else ''}"
+                    )
                 except Exception as exc:
                     logger.error(
                         f"Failed to write data for '{source}': {exc}",
@@ -61,18 +73,20 @@ class DataWriter:
         source: str,
         data: dict,
         now: str,
+        is_mock: bool = False,
+        mock_reason: Optional[str] = None,
     ) -> int:
         """Route a single source's data to the correct table(s)."""
         source_lower = source.lower()
 
         if source_lower == "gexmetrix":
-            return await self._write_gex_snapshot(conn, data, now)
+            return await self._write_gex_snapshot(conn, data, now, is_mock, mock_reason)
         elif source_lower in ("vix", "cboe"):
-            return await self._write_vix_analysis(conn, data, now)
+            return await self._write_vix_analysis(conn, data, now, is_mock, mock_reason)
         elif source_lower in ("darkpool", "dark_pool_metrics"):
-            return await self._write_dark_pool_metrics(conn, data, now)
+            return await self._write_dark_pool_metrics(conn, data, now, is_mock, mock_reason)
         elif source_lower in ("crypto", "crypto_derivatives"):
-            return await self._write_crypto_derivatives(conn, data, now)
+            return await self._write_crypto_derivatives(conn, data, now, is_mock, mock_reason)
         elif source_lower in ("options_greeks", "options_chain"):
             return await self._write_options_greeks(conn, data, now)
         else:
@@ -83,7 +97,10 @@ class DataWriter:
 
     # ── GEX snapshot writer ────────────────────────────────────────────────────
 
-    async def _write_gex_snapshot(self, conn, data: dict, now: str) -> int:
+    async def _write_gex_snapshot(
+        self, conn, data: dict, now: str,
+        is_mock: bool = False, mock_reason: Optional[str] = None,
+    ) -> int:
         """Insert GEX snapshot(s) and associated strikes (batch).
 
         Supports two shapes (gexmetrix_fetcher returns the multi-symbol form):
@@ -115,8 +132,8 @@ class DataWriter:
                    (symbol, timestamp, filename, net_gex, call_gex, put_gex,
                     zero_gamma_level, call_wall, put_wall, spot_price,
                     total_gamma, file_size, quality_score, data_lag_seconds,
-                    oi_coverage_pct)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    oi_coverage_pct, is_mock, mock_reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     symbol,
                     ts,
@@ -133,6 +150,8 @@ class DataWriter:
                     snap.get("quality_score"),
                     snap.get("data_lag_seconds"),
                     snap.get("oi_coverage_pct"),
+                    1 if is_mock else 0,
+                    mock_reason,
                 ),
             )
             rows += 1
@@ -173,14 +192,17 @@ class DataWriter:
 
     # ── VIX writer ─────────────────────────────────────────────────────────────
 
-    async def _write_vix_analysis(self, conn, data: dict, now: str) -> int:
+    async def _write_vix_analysis(
+        self, conn, data: dict, now: str,
+        is_mock: bool = False, mock_reason: Optional[str] = None,
+    ) -> int:
         """Insert VIX term structure analysis row."""
         ts = data.get("_meta", {}).get("fetched_at", now)
         await conn.execute(
             """INSERT INTO vix_analysis
                (timestamp, vix_spot, vx1, vx2, term_structure_ratio,
-                term_structure_state, panic_premium)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                term_structure_state, panic_premium, is_mock, mock_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 ts,
                 data.get("vix_spot"),
@@ -189,6 +211,8 @@ class DataWriter:
                 data.get("term_structure_ratio"),
                 data.get("term_structure_state"),
                 data.get("panic_premium"),
+                1 if is_mock else 0,
+                mock_reason,
             ),
         )
 
@@ -215,7 +239,10 @@ class DataWriter:
 
     # ── Dark pool writer ───────────────────────────────────────────────────────
 
-    async def _write_dark_pool_metrics(self, conn, data: dict, now: str) -> int:
+    async def _write_dark_pool_metrics(
+        self, conn, data: dict, now: str,
+        is_mock: bool = False, mock_reason: Optional[str] = None,
+    ) -> int:
         """Insert or update dark pool metrics for today."""
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         await conn.execute(
@@ -225,8 +252,9 @@ class DataWriter:
                 stockgrid_divergence, dbmf_ma5_recovery,
                 dix_signal, short_ratio_signal, stockgrid_signal,
                 aggregated_signal, v_net, ema_fast_5, ema_slow_20,
-                zero_cross_signal, momentum_reversal_signal, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                zero_cross_signal, momentum_reversal_signal, updated_at,
+                is_mock, mock_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 today,
                 data.get("dix_value"),
@@ -245,6 +273,8 @@ class DataWriter:
                 data.get("zero_cross_signal"),
                 data.get("momentum_reversal_signal"),
                 now,
+                1 if is_mock else 0,
+                mock_reason,
             ),
         )
 
@@ -267,7 +297,10 @@ class DataWriter:
 
     # ── Crypto derivatives writer ──────────────────────────────────────────────
 
-    async def _write_crypto_derivatives(self, conn, data: dict, now: str) -> int:
+    async def _write_crypto_derivatives(
+        self, conn, data: dict, now: str,
+        is_mock: bool = False, mock_reason: Optional[str] = None,
+    ) -> int:
         """Insert crypto derivatives snapshot."""
         ts = data.get("_meta", {}).get("fetched_at", now)
         await conn.execute(
@@ -275,8 +308,9 @@ class DataWriter:
                (timestamp, btc_funding_rate, btc_oi, oi_change_1h,
                 liquidation_spike, cryptoquant_elr, funding_anomaly,
                 oi_crash, leverage_cleanup,
-                btc_price, btc_24h_change, btc_volume, eth_price, eth_24h_change)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                btc_price, btc_24h_change, btc_volume, eth_price, eth_24h_change,
+                is_mock, mock_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 ts,
                 data.get("btc_funding_rate", 0),
@@ -292,6 +326,8 @@ class DataWriter:
                 data.get("btc_volume"),
                 data.get("eth_price"),
                 data.get("eth_24h_change"),
+                1 if is_mock else 0,
+                mock_reason,
             ),
         )
         return 1
@@ -467,7 +503,8 @@ class DataWriter:
                 written += 1
             except Exception as exc:
                 logger.warning(f"[options_greeks] Failed to write {symbol}: {exc}")
-        await conn.commit()
+        # FIX-07: do not commit here; let the outer get_db() context manager
+        # handle commit/rollback for full atomicity across multi-source writes.
         return written
 
     async def _write_gateway_snapshot(
@@ -510,22 +547,30 @@ class DataWriter:
         darkpool_score: Optional[float] = None,
         hawkes_branching_ratio: Optional[float] = None,
         details: Optional[dict] = None,
+        mock_sources: Optional[list[str]] = None,
+        mock_count: int = 0,
     ) -> int:
         """Write a signal alert to the database.
+
+        Args:
+            mock_sources: List of dimension names whose data was mock at signal time.
+            mock_count: Number of mock sources used.
 
         Returns:
             The row id of the inserted alert.
         """
         now = datetime.now(timezone.utc).isoformat()
         details_json = json.dumps(details, default=str) if details else None
+        mock_sources_json = json.dumps(mock_sources) if mock_sources else None
 
         async with get_db() as conn:
             cursor = await conn.execute(
                 """INSERT INTO signal_alerts
                    (trigger_time, total_score, gex_score, vix_score,
                     crypto_score, darkpool_score, alert_level,
-                    hawkes_branching_ratio, details)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    hawkes_branching_ratio, details,
+                    mock_sources, mock_count)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     now,
                     total_score,
@@ -536,7 +581,9 @@ class DataWriter:
                     alert_level,
                     hawkes_branching_ratio,
                     details_json,
+                    mock_sources_json,
+                    mock_count,
                 ),
             )
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+            # FIX-20: INSERT has no result set; use lastrowid instead of fetchone()
+            return cursor.lastrowid or 0

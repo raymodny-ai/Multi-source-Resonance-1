@@ -23,6 +23,8 @@ export interface DashboardDataNormalized {
   last_cycle_at: string | null;
   /** mock 数据来源列表 */
   mock_sources: string[];
+  /** mock 数据来源数量（FIX-01：DB 持久化的 mock_count） */
+  mock_count: number;
   /** 维度模拟标记 */
   is_mock_dims: Record<'gex' | 'vix' | 'crypto' | 'darkpool', boolean>;
 }
@@ -48,7 +50,7 @@ export interface RawDashboardResponse {
   crypto: Record<string, unknown> | null;
   darkpool: Record<string, unknown> | null;
   signal: Record<string, unknown> | null;
-  _meta: { mock_sources: string[] };
+  _meta: { mock_sources: string[]; mock_count: number };
 }
 
 /**
@@ -88,9 +90,16 @@ export function normalizeDashboard(raw: RawDashboardResponse): DashboardDataNorm
   const crypto = (raw.crypto ?? null) as Record<string, unknown> | null;
   const dp = (raw.darkpool ?? null) as Record<string, unknown> | null;
 
+  // FIX-01: read DB-persisted `is_mock` column. The backend's data_writer
+  // now persists `_meta.is_mock` from the fetcher into the corresponding
+  // dimension table, and the dashboard route exposes it directly. The
+  // previous `_meta` lookup was structurally impossible (SQLite rows have
+  // no nested `_meta` key) so the UI never knew which dimensions were mocked.
   const isMockOf = (payload: Record<string, unknown> | null): boolean => {
-    const m = (payload?._meta ?? null) as Record<string, unknown> | null;
-    return Boolean(m?.is_mock);
+    if (!payload) return false;
+    // Accept both bool and integer (SQLite booleans serialize as 0/1).
+    const v = payload.is_mock;
+    return v === true || v === 1 || v === '1';
   };
 
   return {
@@ -107,6 +116,11 @@ export function normalizeDashboard(raw: RawDashboardResponse): DashboardDataNorm
       ? String(sig?.trigger_time ?? '')
       : raw.fetched_at,
     mock_sources: raw._meta?.mock_sources ?? [],
+    mock_count: (() => {
+      const v = raw._meta?.mock_count;
+      const n = typeof v === 'number' ? v : Number(v);
+      return Number.isFinite(n) && n >= 0 ? n : 0;
+    })(),
     is_mock_dims: {
       gex: isMockOf(gex),
       vix: isMockOf(vix),
