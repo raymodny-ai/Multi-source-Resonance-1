@@ -101,9 +101,19 @@ def _compute_darkpool_analysis(data: dict) -> dict:
 
     # --- Signal 3: EMA momentum reversal ---
     # Weight: max 0.50 points → normalized to 0-25.0
+    # AUDIT follow-up (2026-08-02, Owner decision #1): a bullish cross where
+    # BOTH EMAs are still deeply negative is NOT a new bullish signal — it's
+    # just short-covering (空头动能减弱). It should not score anywhere near
+    # a genuine reversal. Require at least one EMA >= 0 for full bullish
+    # weight; otherwise downgrade to a small short-cover signal.
     if zero_cross == "bullish_cross":
-        signals.append("ema_bullish_cross")
-        raw_score += 25.0
+        if ema5 is not None and ema20 is not None and (ema5 >= 0 or ema20 >= 0):
+            signals.append("ema_bullish_cross")
+            raw_score += 25.0
+        else:
+            # still-negative crossover = short covering, minor
+            signals.append("ema_short_cover")
+            raw_score += 8.0
     elif momentum_rev:
         signals.append("momentum_reversal")
         raw_score += 20.0
